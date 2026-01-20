@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "tG0A8EIB2j0=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Komron.Juraev\\Desktop\\backup_monitor\\BackupMonitor.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Komron.Juraev\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\Komron.Juraev\\.nuget\\packages\\system.diagnostics.eventlog\\8.0.0\\system.diagnostics.eventlog.8.0.0.nupkg.sha512",
+    "C:\\Users\\Komron.Juraev\\.nuget\\packages\\system.serviceprocess.servicecontroller\\8.0.0\\system.serviceprocess.servicecontroller.8.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

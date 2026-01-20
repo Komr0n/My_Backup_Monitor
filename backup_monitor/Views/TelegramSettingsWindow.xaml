@@ -1,0 +1,51 @@
+<Window x:Class="BackupMonitor.Views.TelegramSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки Telegram уведомлений" Height="580" Width="700"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Включить Telegram -->
+        <CheckBox Name="ChkEnabled" Content="Включить отправку в Telegram" Grid.Row="0" Margin="0,0,0,15" 
+                  Checked="ChkEnabled_Checked" Unchecked="ChkEnabled_Unchecked"/>
+
+        <!-- Bot Token -->
+        <Label Grid.Row="1" Content="Bot Token:" Margin="0,0,0,5"/>
+        <TextBox Name="TxtBotToken" Grid.Row="2" Margin="0,0,0,15" Height="25" IsEnabled="{Binding ElementName=ChkEnabled, Path=IsChecked}"/>
+
+        <!-- Chat ID -->
+        <Label Grid.Row="3" Content="Chat ID (для группы должен начинаться с минуса, например: -1003441795211):" Margin="0,0,0,5"/>
+        <TextBox Name="TxtChatId" Grid.Row="4" Margin="0,0,0,15" Height="25" IsEnabled="{Binding ElementName=ChkEnabled, Path=IsChecked}"/>
+
+        <!-- Тип отчёта -->
+        <Label Grid.Row="5" Content="Тип отчёта:" Margin="0,0,0,5"/>
+        <StackPanel Grid.Row="6" Margin="0,0,0,15" IsEnabled="{Binding ElementName=ChkEnabled, Path=IsChecked}">
+            <RadioButton Name="RbFailOnly" Content="Отправлять только FAIL" Margin="0,0,0,5" Checked="ReportMode_Checked"/>
+            <RadioButton Name="RbOkOnly" Content="Отправлять только OK" Margin="0,0,0,5" Checked="ReportMode_Checked"/>
+            <RadioButton Name="RbFull" Content="Отправлять полный отчёт (OK + FAIL)" Margin="0,0,0,5" Checked="ReportMode_Checked"/>
+        </StackPanel>
+
+        <!-- Время отправки -->
+        <Label Grid.Row="7" Content="Время отправки (формат HH:mm, каждое на новой строке):" Margin="0,0,0,5"/>
+        <TextBox Name="TxtSendTimes" Grid.Row="8" Margin="0,0,0,15" Height="80" 
+                 TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                 IsEnabled="{Binding ElementName=ChkEnabled, Path=IsChecked}"/>
+
+        <!-- Кнопки -->
+        <StackPanel Grid.Row="9" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Name="BtnSave" Content="Сохранить" Width="100" Height="30" Margin="0,0,10,0" Click="BtnSave_Click"/>
+            <Button Name="BtnCancel" Content="Отмена" Width="100" Height="30" Click="BtnCancel_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,10 @@
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.deps.json
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.pdb
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.csproj.AssemblyReference.cache
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.csproj.CoreCompileInputs.cache
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\refint\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.pdb
+C:\Users\Komron.Juraev\Desktop\backup_monitor\BackupMonitor.Core\obj\Release\net8.0\ref\BackupMonitor.Core.dll
