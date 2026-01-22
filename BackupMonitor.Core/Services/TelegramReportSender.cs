@@ -103,13 +103,13 @@ namespace BackupMonitor.Core.Services
 
             foreach (var service in report.Services)
             {
-                AppendServiceDetails(sb, service, mode, 0);
+                AppendServiceDetails(sb, service, mode);
             }
 
             return sb.ToString();
         }
 
-        private void AppendServiceDetails(StringBuilder sb, ServiceCheckResult result, ReportMode mode, int indentLevel)
+        private void AppendServiceDetails(StringBuilder sb, ServiceCheckResult result, ReportMode mode)
         {
             var isOk = result.Status == ServiceCheckStatus.OK;
             if (mode == ReportMode.FailOnly && isOk)
@@ -117,37 +117,65 @@ namespace BackupMonitor.Core.Services
             if (mode == ReportMode.OkOnly && !isOk)
                 return;
 
-            if (isOk && mode == ReportMode.OkOnly)
+            var statusText = result.Status.ToString();
+            var emoji = GetStatusEmoji(result.Status);
+            var line = $"{emoji} <b>{HtmlEncode(result.ServiceName)}</b>: {HtmlEncode(statusText)}";
+            if (!string.IsNullOrWhiteSpace(result.Message))
             {
-                var indent = new string(' ', indentLevel * 2);
-                sb.AppendLine($"{indent}- <b>{HtmlEncode(result.ServiceName)}</b>: OK");
+                line += $" ({HtmlEncode(result.Message)})";
             }
-            else if (!isOk)
-            {
-                var indent = new string(' ', indentLevel * 2);
-                var line = $"{indent}- <b>{HtmlEncode(result.ServiceName)}</b>: {HtmlEncode(result.Status.ToString())}";
-                if (!string.IsNullOrWhiteSpace(result.Message))
-                {
-                    line += $" ({HtmlEncode(result.Message)})";
-                }
-                sb.AppendLine(line);
-
-                if (result.Details != null && result.Details.Count > 0)
-                {
-                    foreach (var detail in result.Details)
-                    {
-                        sb.AppendLine($"{indent}  <i>{HtmlEncode(detail)}</i>");
-                    }
-                }
-            }
+            sb.AppendLine(line);
 
             if (result.Children != null && result.Children.Count > 0)
             {
+                sb.AppendLine("<blockquote>");
                 foreach (var child in result.Children)
                 {
-                    AppendServiceDetails(sb, child, mode, indentLevel + 1);
+                    AppendChildLine(sb, child);
+                }
+                sb.AppendLine("</blockquote>");
+            }
+            else if (result.Details != null && result.Details.Count > 0)
+            {
+                sb.AppendLine("<blockquote>");
+                foreach (var detail in result.Details)
+                {
+                    sb.AppendLine($"<i>{HtmlEncode(detail)}</i>");
+                }
+                sb.AppendLine("</blockquote>");
+            }
+        }
+
+        private void AppendChildLine(StringBuilder sb, ServiceCheckResult result)
+        {
+            var statusText = result.Status.ToString();
+            var emoji = GetStatusEmoji(result.Status);
+            var line = $"{emoji} {HtmlEncode(result.ServiceName)}: {HtmlEncode(statusText)}";
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                line += $" ({HtmlEncode(result.Message)})";
+            }
+            sb.AppendLine(line);
+
+            if (result.Details != null && result.Details.Count > 0)
+            {
+                foreach (var detail in result.Details)
+                {
+                    sb.AppendLine($"<i>{HtmlEncode(detail)}</i>");
                 }
             }
+        }
+
+        private static string GetStatusEmoji(ServiceCheckStatus status)
+        {
+            return status switch
+            {
+                ServiceCheckStatus.OK => "✅",
+                ServiceCheckStatus.WARNING => "⚠️",
+                ServiceCheckStatus.FAIL => "❌",
+                ServiceCheckStatus.ERROR => "🔥",
+                _ => "❓"
+            };
         }
 
         private static IEnumerable<ServiceCheckResult> FlattenLeafResults(IEnumerable<ServiceCheckResult> results)
