@@ -30,32 +30,25 @@ namespace BackupMonitor.Core.Services
             try
             {
                 var message = FormatReport(report, config.ReportMode);
-                
-                // Если в режиме FAIL_ONLY и все сервисы OK - не отправляем
-                if (config.ReportMode == ReportMode.FailOnly && report.Services.All(s => s.IsValid))
+
+                if (config.ReportMode == ReportMode.FailOnly && FlattenLeafResults(report.Services).All(IsOk))
                 {
                     return false;
                 }
 
-                // Если в режиме OK_ONLY и все сервисы FAIL - не отправляем
-                if (config.ReportMode == ReportMode.OkOnly && report.Services.All(s => !s.IsValid))
+                if (config.ReportMode == ReportMode.OkOnly && FlattenLeafResults(report.Services).All(s => !IsOk(s)))
                 {
                     return false;
                 }
 
                 var url = string.Format(TelegramApiUrl, config.BotToken);
-                
-                // Обрабатываем Chat ID - если это число без минуса, но должно быть для группы, пробуем оба варианта
                 var chatId = config.ChatId.Trim();
-                
-                // Если Chat ID выглядит как ID группы (длинное число), но без минуса - добавляем минус
-                // ID группы обычно начинается с -100
+
                 if (chatId.StartsWith("100") && chatId.Length > 10 && !chatId.StartsWith("-"))
                 {
                     chatId = "-" + chatId;
                 }
-                
-                // Telegram API требует JSON формат
+
                 var payload = new
                 {
                     chat_id = chatId,
@@ -65,27 +58,24 @@ namespace BackupMonitor.Core.Services
 
                 var json = System.Text.Json.JsonSerializer.Serialize(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                
+
                 var response = await _httpClient.PostAsync(url, content);
                 var responseContent = await response.Content.ReadAsStringAsync();
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     return true;
                 }
-                else
+
+                try
                 {
-                    // Парсим ответ от Telegram API для получения детальной ошибки
-                    try
-                    {
-                        var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
-                        var errorMessage = errorResponse?.description ?? responseContent;
-                        throw new Exception($"Telegram API: {errorMessage}");
-                    }
-                    catch
-                    {
-                        throw new Exception($"HTTP {response.StatusCode}: {responseContent}");
-                    }
+                    var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
+                    var errorMessage = errorResponse?.description ?? responseContent;
+                    throw new Exception($"Telegram API: {errorMessage}");
+                }
+                catch
+                {
+                    throw new Exception($"HTTP {response.StatusCode}: {responseContent}");
                 }
             }
             catch (Exception)
@@ -97,43 +87,90 @@ namespace BackupMonitor.Core.Services
         private string FormatReport(BackupReport report, ReportMode mode)
         {
             var sb = new StringBuilder();
-            
-            sb.AppendLine("<b>📊 Backup Report</b>");
+
+            sb.AppendLine("<b>Backup Report</b>");
             sb.AppendLine($"Дата: {report.GeneratedAt:dd.MM.yyyy HH:mm}");
+            sb.AppendLine();
+
+            var leafResults = FlattenLeafResults(report.Services).ToList();
+            var okCount = leafResults.Count(r => r.Status == ServiceCheckStatus.OK);
+            var warningCount = leafResults.Count(r => r.Status == ServiceCheckStatus.WARNING);
+            var failCount = leafResults.Count(r => r.Status == ServiceCheckStatus.FAIL);
+            var errorCount = leafResults.Count(r => r.Status == ServiceCheckStatus.ERROR);
+
+            sb.AppendLine($"OK: {okCount} | WARNING: {warningCount} | FAIL: {failCount} | ERROR: {errorCount}");
             sb.AppendLine();
 
             foreach (var service in report.Services)
             {
-                // Фильтруем по режиму отчёта
-                if (mode == ReportMode.FailOnly && service.IsValid)
-                    continue;
-                if (mode == ReportMode.OkOnly && !service.IsValid)
-                    continue;
-
-                if (service.IsValid)
-                {
-                    sb.AppendLine($"✅ <b>{HtmlEncode(service.Name)}</b> — OK");
-                }
-                else
-                {
-                    sb.AppendLine($"❌ <b>{HtmlEncode(service.Name)}</b> — FAIL");
-                    
-                    if (!string.IsNullOrEmpty(service.ErrorMessage))
-                    {
-                        sb.AppendLine($"  <i>{HtmlEncode(service.ErrorMessage)}</i>");
-                    }
-                    else if (service.MissingDates.Count > 0)
-                    {
-                        foreach (var date in service.MissingDates.OrderBy(d => d))
-                        {
-                            sb.AppendLine($"  {date:dd.MM.yyyy}");
-                        }
-                    }
-                }
-                sb.AppendLine();
+                AppendServiceDetails(sb, service, mode, 0);
             }
 
             return sb.ToString();
+        }
+
+        private void AppendServiceDetails(StringBuilder sb, ServiceCheckResult result, ReportMode mode, int indentLevel)
+        {
+            var isOk = result.Status == ServiceCheckStatus.OK;
+            if (mode == ReportMode.FailOnly && isOk)
+                return;
+            if (mode == ReportMode.OkOnly && !isOk)
+                return;
+
+            if (isOk && mode == ReportMode.OkOnly)
+            {
+                var indent = new string(' ', indentLevel * 2);
+                sb.AppendLine($"{indent}- <b>{HtmlEncode(result.ServiceName)}</b>: OK");
+            }
+            else if (!isOk)
+            {
+                var indent = new string(' ', indentLevel * 2);
+                var line = $"{indent}- <b>{HtmlEncode(result.ServiceName)}</b>: {HtmlEncode(result.Status.ToString())}";
+                if (!string.IsNullOrWhiteSpace(result.Message))
+                {
+                    line += $" ({HtmlEncode(result.Message)})";
+                }
+                sb.AppendLine(line);
+
+                if (result.Details != null && result.Details.Count > 0)
+                {
+                    foreach (var detail in result.Details)
+                    {
+                        sb.AppendLine($"{indent}  <i>{HtmlEncode(detail)}</i>");
+                    }
+                }
+            }
+
+            if (result.Children != null && result.Children.Count > 0)
+            {
+                foreach (var child in result.Children)
+                {
+                    AppendServiceDetails(sb, child, mode, indentLevel + 1);
+                }
+            }
+        }
+
+        private static IEnumerable<ServiceCheckResult> FlattenLeafResults(IEnumerable<ServiceCheckResult> results)
+        {
+            foreach (var result in results)
+            {
+                if (result.Children != null && result.Children.Count > 0)
+                {
+                    foreach (var child in FlattenLeafResults(result.Children))
+                    {
+                        yield return child;
+                    }
+                }
+                else
+                {
+                    yield return result;
+                }
+            }
+        }
+
+        private static bool IsOk(ServiceCheckResult result)
+        {
+            return result.Status == ServiceCheckStatus.OK;
         }
 
         private static string HtmlEncode(string? value)

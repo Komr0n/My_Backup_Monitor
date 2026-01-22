@@ -1,27 +1,34 @@
-<Window x:Class="BackupMonitor.Views.ServiceWindow"
+<Window x:Class="BackupMonitor.Views.BulkServiceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Настройка сервиса" Height="600" Width="650"
+        Title="Добавить группу сервисов" Height="700" Width="700"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="15">
-            <TextBlock Text="Название сервиса:" Margin="0,0,0,5"/>
-            <TextBox Name="TxtServiceName" Height="25" Margin="0,0,0,10"/>
+            <TextBlock Text="Название группы:" Margin="0,0,0,5"/>
+            <TextBox Name="TxtGroupName" Height="25" Margin="0,0,0,10"/>
 
-            <TextBlock Text="Путь к папке с бэкапами:" Margin="0,0,0,5"/>
+            <TextBlock Text="Базовый путь к папкам:" Margin="0,0,0,5"/>
             <Grid Margin="0,0,0,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBox Name="TxtPath" Grid.Column="0" Height="25" Margin="0,0,10,0"/>
+                <TextBox Name="TxtBasePath" Grid.Column="0" Height="25" Margin="0,0,10,0"/>
                 <Button Name="BtnBrowse" Content="Обзор..." Grid.Column="1" Width="80" Height="25" Click="BtnBrowse_Click"/>
             </Grid>
+
+            <TextBlock Text="Подпапки (по одной на строку):" Margin="0,0,0,5"/>
+            <TextBox Name="TxtChildFolders" Height="140" Margin="0,0,0,5"
+                     TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+            <Button Name="BtnLoadFolders" Content="Загрузить подпапки из пути" Width="260" Height="25" Margin="0,0,0,10" Click="BtnLoadFolders_Click"/>
 
             <TextBlock Text="Ключевые слова (через запятую, опционально):" Margin="0,0,0,5"/>
             <TextBox Name="TxtKeywords" Height="60" Margin="0,0,0,10"
                      TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+
+            <CheckBox Name="ChkUseChildFolderAsKeyword" Content="Использовать имя подпапки как ключевое слово, если Keywords пустые" Margin="0,0,0,10" IsChecked="True"/>
 
             <TextBlock Text="Маска файлов (например *.bak, опционально):" Margin="0,0,0,5"/>
             <TextBox Name="TxtFileMask" Height="25" Margin="0,0,0,10"/>

@@ -4,17 +4,17 @@
 winexe
 C#
 .cs
-C:\Users\Komron.Juraev\Desktop\backup_monitor\obj\Release\net8.0-windows\
+C:\Users\User\Documents\GitHub\My_Backup_Monitor\obj\Release\net8.0-windows\
 BackupMonitor
 none
 false
 TRACE;RELEASE;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
-C:\Users\Komron.Juraev\Desktop\backup_monitor\App.xaml
-6856526712
+C:\Users\User\Documents\GitHub\My_Backup_Monitor\App.xaml
+7-81703990
 
-141499368875
-210518669370
-MainWindow.xaml;Views\PeriodResultWindow.xaml;Views\PeriodWindow.xaml;Views\ServiceSelectWindow.xaml;Views\ServiceWindow.xaml;Views\TelegramSettingsWindow.xaml;
+14894956844
+2101098384457
+MainWindow.xaml;Views\BulkServiceWindow.xaml;Views\PeriodResultWindow.xaml;Views\PeriodWindow.xaml;Views\ServiceSelectWindow.xaml;Views\ServiceWindow.xaml;Views\TelegramSettingsWindow.xaml;
 
 False
 

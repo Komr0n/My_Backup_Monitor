@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Principal;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 
 namespace BackupMonitor.Services
 {
+    [SupportedOSPlatform("windows")]
     public static class ServiceInstallerHelper
     {
         private static readonly string _serviceName = "BackupMonitorService";

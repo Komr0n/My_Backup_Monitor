@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+**/*.userprefs
+**/*.nupkg
+**/*.snupkg
+.vs/
+*.cache
+*.pdb

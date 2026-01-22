@@ -67,14 +67,14 @@ namespace BackupMonitorService
                     var now = DateTime.Now;
                     var todayKey = now.ToString("yyyy-MM-dd");
                     var tolerance = TimeSpan.FromMinutes(2);
-                    
+
                     lock (_lockObject)
                     {
                         if (!_sentTimesToday.Contains(todayKey))
                         {
                             _sentTimesToday.Clear();
                             _sentTimesToday.Add(todayKey);
-                            _logger.LogInformation("Новый день: {todayKey}, сброс списка отправленных отчётов", todayKey);
+                            _logger.LogInformation("Новый день: {todayKey}, сброс списка отправленных отчетов", todayKey);
                             WriteFileLog($"Новый день: {todayKey}");
                         }
                     }
@@ -100,7 +100,7 @@ namespace BackupMonitorService
                             {
                                 _sentTimesToday.Add(timeKey);
                             }
-                            
+
                             _ = Task.Run(async () =>
                             {
                                 try
@@ -109,7 +109,7 @@ namespace BackupMonitorService
                                 }
                                 catch (Exception ex)
                                 {
-                                    _logger.LogError(ex, "Ошибка при отправке запланированного отчёта");
+                                    _logger.LogError(ex, "Ошибка при отправке запланированного отчета");
                                     WriteFileLog($"Ошибка отправки: {ex.Message}");
                                 }
                             }, stoppingToken);
@@ -144,38 +144,37 @@ namespace BackupMonitorService
         {
             try
             {
-                _logger.LogInformation("Начало отправки запланированного отчёта в {time}", DateTime.Now.ToString("HH:mm:ss"));
-                var report = GenerateReportForPreviousDay();
+                _logger.LogInformation("Начало отправки запланированного отчета в {time}", DateTime.Now.ToString("HH:mm:ss"));
+                var report = await GenerateReportAsync(DateTime.Today);
                 if (report == null)
                 {
-                    _logger.LogWarning("Не удалось сгенерировать отчёт");
-                    WriteFileLog("Отчёт не сформирован: нет сервисов или ошибка");
+                    _logger.LogWarning("Не удалось сформировать отчет");
+                    WriteFileLog("Отчет не сформирован: нет сервисов или ошибка");
                     return;
                 }
                 var success = await _telegramSender.SendReportAsync(config, report);
                 if (success)
                 {
-                    _logger.LogInformation("Запланированный отчёт успешно отправлен в Telegram");
-                    WriteFileLog("Отчёт отправлен успешно");
+                    _logger.LogInformation("Запланированный отчет успешно отправлен в Telegram");
+                    WriteFileLog("Отчет отправлен успешно");
                 }
                 else
                 {
-                    _logger.LogWarning("Не удалось отправить запланированный отчёт (вернулся false)");
+                    _logger.LogWarning("Не удалось отправить запланированный отчет (false)");
                     WriteFileLog("Отправка вернула false");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка отправки запланированного отчёта: {message}", ex.Message);
+                _logger.LogError(ex, "Ошибка отправки запланированного отчета: {message}", ex.Message);
                 WriteFileLog($"Ошибка отправки: {ex.Message}");
             }
         }
 
-        private BackupReport? GenerateReportForPreviousDay()
+        private async Task<BackupReport?> GenerateReportAsync(DateTime baseDate)
         {
             try
             {
-                var previousDay = DateTime.Now.Date.AddDays(-1);
                 var report = new BackupReport { GeneratedAt = DateTime.Now };
                 var services = _configManager.Services;
 
@@ -185,41 +184,17 @@ namespace BackupMonitorService
                     return null;
                 }
 
-                foreach (var service in services)
-                {
-                    try
-                    {
-                        var result = _backupChecker.CheckBackupForDate(service, previousDay);
-                        var serviceReport = new BackupReport.ServiceReport
-                        {
-                            Name = service.Name,
-                            Path = service.Path,
-                            IsValid = result.IsValid,
-                            ErrorMessage = result.ErrorMessage
-                        };
-                        if (!result.IsValid && result.MissingDates.Count > 0)
-                        {
-                            serviceReport.MissingDates.AddRange(result.MissingDates);
-                        }
-                        report.Services.Add(serviceReport);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Ошибка при проверке сервиса {name}", service.Name);
-                        report.Services.Add(new BackupReport.ServiceReport
-                        {
-                            Name = service.Name,
-                            Path = service.Path,
-                            IsValid = false,
-                            ErrorMessage = $"Ошибка проверки: {ex.Message}"
-                        });
-                    }
-                }
+                var tasks = services
+                    .Select(service => _backupChecker.CheckServiceAsync(service, baseDate))
+                    .ToArray();
+
+                var results = await Task.WhenAll(tasks);
+                report.Services.AddRange(results);
                 return report;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при генерации отчёта: {message}", ex.Message);
+                _logger.LogError(ex, "Ошибка при генерации отчета: {message}", ex.Message);
                 return null;
             }
         }

@@ -55,24 +55,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Komron.Juraev\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\User\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Komron.Juraev\\Desktop\\backup_monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
+      "projectUniqueName": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
       "projectName": "BackupMonitor.Core",
-      "projectPath": "C:\\Users\\Komron.Juraev\\Desktop\\backup_monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
-      "packagesPath": "C:\\Users\\Komron.Juraev\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Komron.Juraev\\Desktop\\backup_monitor\\BackupMonitor.Core\\obj\\",
+      "projectPath": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
+      "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\Komron.Juraev\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Users\\User\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -125,7 +120,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

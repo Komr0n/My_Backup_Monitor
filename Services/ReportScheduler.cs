@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BackupMonitor.Core.Models;
@@ -10,20 +9,20 @@ namespace BackupMonitor.Services
 {
     public class ReportScheduler
     {
-        private DispatcherTimer _timer;
-        private BackupMonitor.Services.ConfigurationManager _configManager;
-        private BackupMonitor.Services.BackupChecker _backupChecker;
-        private BackupMonitor.Services.TelegramReportSender _telegramSender;
-        private HashSet<string> _sentTimesToday = new HashSet<string>();
+        private readonly DispatcherTimer _timer;
+        private readonly ConfigurationManager _configManager;
+        private readonly BackupChecker _backupChecker;
+        private readonly TelegramReportSender _telegramSender;
+        private readonly HashSet<string> _sentTimesToday = new HashSet<string>();
 
-        public ReportScheduler(BackupMonitor.Services.ConfigurationManager configManager, BackupMonitor.Services.BackupChecker backupChecker, BackupMonitor.Services.TelegramReportSender telegramSender)
+        public ReportScheduler(ConfigurationManager configManager, BackupChecker backupChecker, TelegramReportSender telegramSender)
         {
             _configManager = configManager;
             _backupChecker = backupChecker;
             _telegramSender = telegramSender;
-            
+
             _timer = new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromSeconds(30); // Проверяем каждые 30 секунд для более точного срабатывания
+            _timer.Interval = TimeSpan.FromSeconds(30);
             _timer.Tick += Timer_Tick;
         }
 
@@ -32,7 +31,7 @@ namespace BackupMonitor.Services
             if (!_timer.IsEnabled)
             {
                 _timer.Start();
-                System.Diagnostics.Debug.WriteLine("Планировщик отчётов запущен");
+                System.Diagnostics.Debug.WriteLine("Планировщик отчетов запущен");
             }
         }
 
@@ -51,24 +50,20 @@ namespace BackupMonitor.Services
             var currentTime = now.ToString("HH:mm");
             var todayKey = now.ToString("yyyy-MM-dd");
 
-            // Сбрасываем список отправленных времён при смене дня
             if (!_sentTimesToday.Contains(todayKey))
             {
                 _sentTimesToday.Clear();
                 _sentTimesToday.Add(todayKey);
-                System.Diagnostics.Debug.WriteLine($"Новый день: {todayKey}, сброс списка отправленных отчётов");
+                System.Diagnostics.Debug.WriteLine($"Новый день: {todayKey}, сброс списка отправленных отчетов");
             }
 
-            // Проверяем, нужно ли отправить отчёт сейчас
             foreach (var sendTime in config.SendTimes)
             {
                 var timeKey = $"{todayKey}_{sendTime}";
-                
-                // Если уже отправили в это время сегодня - пропускаем
+
                 if (_sentTimesToday.Contains(timeKey))
                     continue;
 
-                // Проверяем, наступило ли время отправки (с точностью до минуты)
                 if (IsTimeToSend(currentTime, sendTime))
                 {
                     System.Diagnostics.Debug.WriteLine($"Время отправки наступило: {currentTime} == {sendTime}");
@@ -80,10 +75,9 @@ namespace BackupMonitor.Services
 
         private bool IsTimeToSend(string currentTime, string scheduledTime)
         {
-            // Парсим время в формате HH:mm
             var currentParts = currentTime.Split(':');
             var scheduledParts = scheduledTime.Split(':');
-            
+
             if (currentParts.Length == 2 && scheduledParts.Length == 2)
             {
                 if (int.TryParse(currentParts[0], out var currentHour) &&
@@ -91,43 +85,38 @@ namespace BackupMonitor.Services
                     int.TryParse(scheduledParts[0], out var scheduledHour) &&
                     int.TryParse(scheduledParts[1], out var scheduledMinute))
                 {
-                    bool matches = currentHour == scheduledHour && currentMinute == scheduledMinute;
-                    if (matches)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Время совпало: текущее {currentTime}, запланированное {scheduledTime}");
-                    }
-                    return matches;
+                    return currentHour == scheduledHour && currentMinute == scheduledMinute;
                 }
             }
             return false;
         }
 
-        private async Task SendScheduledReportAsync(BackupMonitor.Core.Models.TelegramConfig config)
+        private async Task SendScheduledReportAsync(TelegramConfig config)
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"Начало отправки запланированного отчёта в {DateTime.Now:HH:mm:ss}");
-                var report = GenerateReport();
+                System.Diagnostics.Debug.WriteLine($"Начало отправки запланированного отчета в {DateTime.Now:HH:mm:ss}");
+                var report = await GenerateReportAsync(DateTime.Today);
                 var preSendResult = GetPreSendResult(config, report);
                 if (preSendResult.HasValue)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Отчёт не отправлен: {preSendResult.Value.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Отчет не отправлен: {preSendResult.Value.Message}");
                     return;
                 }
 
                 var success = await _telegramSender.SendReportAsync(config, report);
                 if (success)
                 {
-                    System.Diagnostics.Debug.WriteLine("Запланированный отчёт успешно отправлен");
+                    System.Diagnostics.Debug.WriteLine("Запланированный отчет успешно отправлен");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("Не удалось отправить запланированный отчёт (вернулся false)");
+                    System.Diagnostics.Debug.WriteLine("Не удалось отправить запланированный отчет (false)");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Ошибка отправки запланированного отчёта: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Ошибка отправки запланированного отчета: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"StackTrace: {ex.StackTrace}");
             }
         }
@@ -150,7 +139,7 @@ namespace BackupMonitor.Services
                 throw new Exception("Chat ID не настроен");
             }
 
-            var report = GenerateReport();
+            var report = await GenerateReportAsync(DateTime.Today);
             var preSendResult = GetPreSendResult(config, report);
             if (preSendResult.HasValue)
             {
@@ -163,19 +152,20 @@ namespace BackupMonitor.Services
                 : ReportSendResult.Failed("Не удалось отправить отчет");
         }
 
-        private ReportSendResult? GetPreSendResult(TelegramConfig config, BackupMonitor.Core.Models.BackupReport report)
+        private ReportSendResult? GetPreSendResult(TelegramConfig config, BackupReport report)
         {
             if (report.Services.Count == 0)
             {
                 return ReportSendResult.Failed("Нет настроенных сервисов для отчета");
             }
 
-            if (config.ReportMode == ReportMode.FailOnly && report.Services.All(s => s.IsValid))
+            var leafResults = FlattenLeafResults(report.Services).ToList();
+            if (config.ReportMode == ReportMode.FailOnly && leafResults.All(r => r.Status == ServiceCheckStatus.OK))
             {
                 return ReportSendResult.Skipped("Все сервисы в статусе OK. Режим FAIL_ONLY");
             }
 
-            if (config.ReportMode == ReportMode.OkOnly && report.Services.All(s => !s.IsValid))
+            if (config.ReportMode == ReportMode.OkOnly && leafResults.All(r => r.Status != ServiceCheckStatus.OK))
             {
                 return ReportSendResult.Skipped("Все сервисы в статусе FAIL. Режим OK_ONLY");
             }
@@ -183,36 +173,39 @@ namespace BackupMonitor.Services
             return null;
         }
 
-        private BackupMonitor.Core.Models.BackupReport GenerateReport()
+        private async Task<BackupReport> GenerateReportAsync(DateTime baseDate)
         {
-            var report = new BackupMonitor.Core.Models.BackupReport
+            var report = new BackupReport
             {
                 GeneratedAt = DateTime.Now
             };
 
-            var today = DateTime.Now.Date;
+            var tasks = _configManager.Services
+                .Select(service => _backupChecker.CheckServiceAsync(service, baseDate))
+                .ToArray();
 
-            foreach (var service in _configManager.Services)
-            {
-                var result = _backupChecker.CheckBackupForDate(service, today);
-                
-                var serviceReport = new BackupMonitor.Core.Models.BackupReport.ServiceReport
-                {
-                    Name = service.Name,
-                    Path = service.Path,
-                    IsValid = result.IsValid,
-                    ErrorMessage = result.ErrorMessage
-                };
-
-                if (!result.IsValid && result.MissingDates.Count > 0)
-                {
-                    serviceReport.MissingDates.AddRange(result.MissingDates);
-                }
-
-                report.Services.Add(serviceReport);
-            }
+            var results = await Task.WhenAll(tasks);
+            report.Services.AddRange(results);
 
             return report;
+        }
+
+        private static IEnumerable<ServiceCheckResult> FlattenLeafResults(IEnumerable<ServiceCheckResult> results)
+        {
+            foreach (var result in results)
+            {
+                if (result.Children != null && result.Children.Count > 0)
+                {
+                    foreach (var child in FlattenLeafResults(result.Children))
+                    {
+                        yield return child;
+                    }
+                }
+                else
+                {
+                    yield return result;
+                }
+            }
         }
     }
 

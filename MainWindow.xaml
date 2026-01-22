@@ -1,6 +1,7 @@
 <Window x:Class="BackupMonitor.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:BackupMonitor"
         Title="Backup Monitor" Height="637" Width="1279"
         WindowStartupLocation="CenterScreen" FontSize="18">
     <Grid Margin="12">
@@ -15,11 +16,12 @@
             <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
                 <Button Name="BtnCheckToday" Content="Проверить сегодня" Width="170" Height="34" Margin="10,0,20,0" Click="BtnCheckToday_Click"/>
                 <Button Name="BtnCheckPeriod" Content="Проверить период" Width="170" Height="34" Margin="0,0,20,0" Click="BtnCheckPeriod_Click"/>
-                <Button Name="BtnAddService" Content="Добавить сервис" Width="150" Height="32" Margin="0,0,20,0" Click="BtnAddService_Click"/>
+                <Button Name="BtnAddService" Content="Добавить сервис" Width="150" Height="32" Margin="0,0,10,0" Click="BtnAddService_Click"/>
+                <Button Name="BtnAddGroup" Content="???????? ??????" Width="160" Height="32" Margin="0,0,20,0" Click="BtnAddGroup_Click"/>
                 <Button Name="BtnEditService" Content="Редактировать сервис" Width="196" Height="32" Margin="0,0,20,0" Click="BtnEditService_Click"/>
                 <Button Name="BtnDeleteService" Content="Удалить сервис" Width="150" Height="32" Margin="0,0,20,0" Click="BtnDeleteService_Click"/>
                 <Button Name="BtnTelegramSettings" Content="Telegram" Width="120" Height="32" Margin="0,0,20,0" Click="BtnTelegramSettings_Click"/>
-                <Button Name="BtnSendReport" Content="Отправить отчёт" Width="150" Height="32" Click="BtnSendReport_Click"/>
+                <Button Name="BtnSendReport" Content="Отправить отчет" Width="150" Height="32" Click="BtnSendReport_Click"/>
             </StackPanel>
             <!-- Управление Windows Service -->
             <StackPanel Orientation="Horizontal" Margin="70,0,0,0">
@@ -32,50 +34,67 @@
             </StackPanel>
         </StackPanel>
 
-        <!-- Таблица сервисов -->
-        <DataGrid Name="ServicesDataGrid" Grid.Row="1"
-                  AutoGenerateColumns="False" 
-                  IsReadOnly="True"
-                  SelectionMode="Single"
-                  RowHeaderWidth="0"
-                  MinRowHeight="24"
-                  HeadersVisibility="Column"
-                  GridLinesVisibility="Horizontal"
-                  SelectionChanged="ServicesDataGrid_SelectionChanged"
-                  CanUserResizeColumns="True"
+        <!-- Дерево сервисов -->
+        <TreeView Name="ServicesTreeView"
+                  Grid.Row="1"
+                  SelectedItemChanged="ServicesTreeView_SelectedItemChanged"
                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
                   ScrollViewer.VerticalScrollBarVisibility="Auto">
-            <DataGrid.RowStyle>
-                <Style TargetType="DataGridRow">
+            <TreeView.Resources>
+                <Style x:Key="StatusIndicatorStyle" TargetType="Border">
+                    <Setter Property="Width" Value="10"/>
+                    <Setter Property="Height" Value="10"/>
+                    <Setter Property="CornerRadius" Value="2"/>
+                    <Setter Property="Background" Value="#FF9E9E9E"/>
+                    <Setter Property="Margin" Value="0,0,6,0"/>
                     <Style.Triggers>
-                        <DataTrigger Binding="{Binding Status}" Value="FAIL">
-                            <Setter Property="Background" Value="#FFF8D8D8"/>
-                            <Setter Property="BorderBrush" Value="#FFE57373"/>
-                            <Setter Property="Foreground" Value="#FF7A0000"/>
-                        </DataTrigger>
                         <DataTrigger Binding="{Binding Status}" Value="OK">
-                            <Setter Property="Background" Value="#FFDDF8E3"/>
-                            <Setter Property="BorderBrush" Value="#FF7ACB8F"/>
-                            <Setter Property="Foreground" Value="#FF0F5A24"/>
+                            <Setter Property="Background" Value="#FF2E7D32"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="WARNING">
+                            <Setter Property="Background" Value="#FFF9A825"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="FAIL">
+                            <Setter Property="Background" Value="#FFC62828"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="ERROR">
+                            <Setter Property="Background" Value="#FF6D4C41"/>
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
-            </DataGrid.RowStyle>
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Название сервиса" Binding="{Binding Name}" Width="200" CanUserResize="True"/>
-                <DataGridTextColumn Header="Путь" Binding="{Binding Path}" Width="500" CanUserResize="True"/>
-                <DataGridTextColumn Header="Статус" Binding="{Binding Status}" Width="90" CanUserResize="True"/>
-                <DataGridTextColumn Header="Детали" Binding="{Binding Details}" Width="465" MinWidth="400" CanUserResize="True">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="TextWrapping" Value="Wrap"/>
-                            <Setter Property="TextTrimming" Value="None"/>
-                            <Setter Property="VerticalAlignment" Value="Top"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-            </DataGrid.Columns>
-        </DataGrid>
+                <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="Foreground" Value="#FF424242"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Status}" Value="OK">
+                            <Setter Property="Foreground" Value="#FF2E7D32"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="WARNING">
+                            <Setter Property="Foreground" Value="#FFF9A825"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="FAIL">
+                            <Setter Property="Foreground" Value="#FFC62828"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Status}" Value="ERROR">
+                            <Setter Property="Foreground" Value="#FF6D4C41"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TreeView.Resources>
+            <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate DataType="{x:Type local:ServiceNodeViewModel}" ItemsSource="{Binding Children}">
+                    <StackPanel Orientation="Vertical" Margin="4,2">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Style="{StaticResource StatusIndicatorStyle}"/>
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                            <TextBlock Text="{Binding Status}" Style="{StaticResource StatusTextStyle}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Path}" FontSize="14" Foreground="#FF616161" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Details}" FontSize="14" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </HierarchicalDataTemplate>
+            </TreeView.ItemTemplate>
+        </TreeView>
 
         <!-- Статус бар -->
         <StatusBar Grid.Row="2" Margin="0,10,0,0">

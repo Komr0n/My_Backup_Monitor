@@ -1,17 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.ServiceProcess;
+using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Win32;
 using BackupMonitor.Core.Models;
 using BackupMonitor.Services;
 using BackupMonitor.Views;
-using System.Threading.Tasks;
+using System.Runtime.Versioning;
+using ServiceTypeModel = BackupMonitor.Core.Models.ServiceType;
 
 namespace BackupMonitor
 {
+    [SupportedOSPlatform("windows")]
     public partial class MainWindow : Window
     {
         private ConfigurationManager _configManager;
@@ -19,35 +23,30 @@ namespace BackupMonitor
         private TelegramReportSender _telegramSender;
         private ReportScheduler _scheduler;
         private WindowsServiceManager _serviceManager;
-        private ObservableCollection<ServiceViewModel> _services;
+        private ObservableCollection<ServiceNodeViewModel> _services;
 
         public MainWindow()
         {
             InitializeComponent();
-            
-            // Используем директорию приложения для конфигурации
+
             var configDirectory = AppDomain.CurrentDomain.BaseDirectory;
             _configManager = new ConfigurationManager(configDirectory);
             _backupChecker = new BackupChecker();
             _telegramSender = new TelegramReportSender();
             _scheduler = new ReportScheduler(_configManager, _backupChecker, _telegramSender);
             _serviceManager = new WindowsServiceManager();
-            _services = new ObservableCollection<ServiceViewModel>();
-            
+            _services = new ObservableCollection<ServiceNodeViewModel>();
+
             LoadServices();
             RefreshServiceStatus();
-            
-            // Запускаем планировщик
+
             _scheduler.Start();
-            
-            // Предупреждаем о правах администратора при необходимости
+
             if (!ServiceInstallerHelper.IsRunningAsAdministrator())
             {
-                // Не показываем сообщение сразу, чтобы не мешать - пользователь увидит при попытке установить службу
-                // Просто оставляем информативное сообщение в статусе
                 if (!_serviceManager.IsServiceInstalled())
                 {
-                    StatusText.Text = "Для установки службы требуются права администратора";
+                    StatusText.Text = "Administrator rights required to install the service";
                 }
             }
         }
@@ -57,60 +56,147 @@ namespace BackupMonitor
             _services.Clear();
             foreach (var service in _configManager.Services)
             {
-                _services.Add(new ServiceViewModel
+                _services.Add(CreateViewModel(service));
+            }
+            ServicesTreeView.ItemsSource = _services;
+        }
+
+        private ServiceNodeViewModel CreateViewModel(Service service)
+        {
+            var node = new ServiceNodeViewModel(service)
+            {
+                Name = service.Name,
+                Path = service.Path,
+                Status = "-",
+                Details = string.Empty
+            };
+
+            foreach (var child in ResolveChildrenForUi(service))
+            {
+                node.Children.Add(CreateViewModel(child));
+            }
+
+            return node;
+        }
+
+        private List<Service> ResolveChildrenForUi(Service service)
+        {
+            if (service.Children != null && service.Children.Count > 0)
+            {
+                return service.Children;
+            }
+
+            if (service.ChildFolders == null || service.ChildFolders.Count == 0)
+            {
+                return new List<Service>();
+            }
+
+            var children = new List<Service>();
+            foreach (var folder in service.ChildFolders.Where(f => !string.IsNullOrWhiteSpace(f)))
+            {
+                var childName = folder.Trim();
+                var childKeywords = (service.Keywords != null && service.Keywords.Count > 0)
+                    ? new List<string>(service.Keywords)
+                    : (service.UseChildFolderAsKeyword ? new List<string> { childName } : new List<string>());
+
+                children.Add(new Service
                 {
-                    Name = service.Name,
-                    Path = service.Path,
-                    Status = "-",
-                    Details = ""
+                    Name = childName,
+                    Path = Path.Combine(service.Path, childName),
+                    Keywords = childKeywords,
+                    DatePatterns = new List<string>(service.DatePatterns ?? new List<string>()),
+                    ExpectedDayOffset = service.ExpectedDayOffset,
+                    CheckMode = service.CheckMode,
+                    FileTimeSource = service.FileTimeSource,
+                    MinFilesPerDay = service.MinFilesPerDay,
+                    FileMask = service.FileMask,
+                    Type = ServiceTypeModel.Single,
+                    Required = true
                 });
             }
-            ServicesDataGrid.ItemsSource = _services;
+
+            return children;
         }
 
         private async void BtnCheckToday_Click(object sender, RoutedEventArgs e)
         {
-            StatusText.Text = "Проверка бэкапов за сегодня...";
+            StatusText.Text = "Checking backups for today...";
             BtnCheckToday.IsEnabled = false;
             BtnCheckPeriod.IsEnabled = false;
-            
+
             try
             {
-                var today = DateTime.Now.Date;
-                
-                await System.Threading.Tasks.Task.Run(() =>
-                {
-                    for (int i = 0; i < _configManager.Services.Count; i++)
-                    {
-                        var service = _configManager.Services[i];
-                        var result = _backupChecker.CheckBackupForDate(service, today);
-                        
-                        Dispatcher.Invoke(() =>
-                        {
-                            _services[i].Status = result.IsValid ? "OK" : "FAIL";
-                            if (!string.IsNullOrEmpty(result.ErrorMessage))
-                            {
-                                _services[i].Details = result.ErrorMessage;
-                            }
-                            else if (!result.IsValid)
-                            {
-                                _services[i].Details = $"Бэкап за {today:yyyy-MM-dd} не найден";
-                            }
-                            else
-                            {
-                                _services[i].Details = $"Бэкап за {today:yyyy-MM-dd} найден";
-                            }
-                        });
-                    }
-                });
-                
-                StatusText.Text = "Проверка завершена";
+                var today = DateTime.Today;
+                var tasks = _configManager.Services
+                    .Select(service => _backupChecker.CheckServiceAsync(service, today))
+                    .ToArray();
+
+                var results = await Task.WhenAll(tasks);
+                UpdateViewModels(results);
+
+                StatusText.Text = "Check completed";
             }
             finally
             {
                 BtnCheckToday.IsEnabled = true;
                 BtnCheckPeriod.IsEnabled = true;
             }
+        }
+
+        private void UpdateViewModels(IReadOnlyList<ServiceCheckResult> results)
+        {
+            for (var i = 0; i < results.Count && i < _services.Count; i++)
+            {
+                ApplyResultToNode(_services[i], results[i]);
+            }
+        }
+
+        private void ApplyResultToNode(ServiceNodeViewModel node, ServiceCheckResult result)
+        {
+            node.Status = result.Status.ToString();
+            node.Details = BuildDetailsText(result);
+
+            if (result.Children == null || result.Children.Count == 0)
+            {
+                return;
+            }
+
+            for (var i = 0; i < result.Children.Count && i < node.Children.Count; i++)
+            {
+                ApplyResultToNode(node.Children[i], result.Children[i]);
+            }
+        }
+
+        private string BuildDetailsText(ServiceCheckResult result)
+        {
+            var parts = new List<string>();
+
+            if (result.ExpectedDate != default)
+            {
+                parts.Add($"Expected date: {result.ExpectedDate:yyyy-MM-dd}");
+            }
+
+            if (result.MinRequiredCount > 0)
+            {
+                parts.Add($"Files: {result.FoundCount}/{result.MinRequiredCount}");
+            }
+
+            if (result.LastObservedBackupDate.HasValue)
+            {
+                parts.Add($"Last backup: {result.LastObservedBackupDate:yyyy-MM-dd}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                parts.Add(result.Message);
+            }
+
+            if (result.Details != null && result.Details.Count > 0)
+            {
+                parts.AddRange(result.Details);
+            }
+
+            return string.Join(Environment.NewLine, parts.Where(p => !string.IsNullOrWhiteSpace(p)));
         }
 
         private async void BtnCheckPeriod_Click(object sender, RoutedEventArgs e)
@@ -121,8 +207,11 @@ namespace BackupMonitor
                 var startDate = periodWindow.StartDate;
                 var endDate = periodWindow.EndDate;
 
-                // Выбор сервиса для проверки периода
-                var selectWindow = new ServiceSelectWindow(_configManager.Services.Select(s => s.Name).ToList());
+                var selectableServices = FlattenServices(_configManager.Services)
+                    .Where(s => s.Type == ServiceTypeModel.Single)
+                    .ToList();
+
+                var selectWindow = new ServiceSelectWindow(selectableServices.Select(s => s.Name).ToList());
                 if (selectWindow.ShowDialog() != true)
                     return;
 
@@ -131,94 +220,126 @@ namespace BackupMonitor
                 {
                     return;
                 }
-                
-                StatusText.Text = $"Проверка бэкапов за период {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}...";
+
+                StatusText.Text = $"Checking backups for period {startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd}...";
                 BtnCheckToday.IsEnabled = false;
                 BtnCheckPeriod.IsEnabled = false;
-                
+
                 try
                 {
                     if (selectedName == ServiceSelectWindow.AllServicesLabel)
                     {
-                        await System.Threading.Tasks.Task.Run(() =>
+                        await Task.Run(() =>
                         {
-                            for (int i = 0; i < _configManager.Services.Count; i++)
+                            foreach (var service in selectableServices)
                             {
-                                var service = _configManager.Services[i];
                                 var result = _backupChecker.CheckBackupForPeriod(service, startDate, endDate);
-
-                                Dispatcher.Invoke(() =>
-                                {
-                                    _services[i].Status = result.IsValid ? "OK" : "FAIL";
-                                    if (!string.IsNullOrEmpty(result.ErrorMessage))
-                                    {
-                                        _services[i].Details = result.ErrorMessage;
-                                    }
-                                    else if (result.MissingDates.Count > 0)
-                                    {
-                                        // Показываем все даты - пользователь сможет прокрутить вправо
-                                        var datesList = result.MissingDates.Select(d => d.ToString("yyyy-MM-dd")).ToList();
-                                        _services[i].Details = $"Отсутствуют бэкапы: {result.MissingDates.Count} дн. ({string.Join(", ", datesList)})";
-                                    }
-                                    else
-                                    {
-                                        _services[i].Details = "Все бэкапы найдены";
-                                    }
-                                });
+                                Dispatcher.Invoke(() => ApplyPeriodResult(service, result, startDate, endDate));
                             }
                         });
                     }
                     else
                     {
-                        var serviceIndex = -1;
-                        for (int i = 0; i < _configManager.Services.Count; i++)
+                        var service = selectableServices.FirstOrDefault(s => s.Name == selectedName);
+                        if (service == null)
                         {
-                            if (_configManager.Services[i].Name == selectedName)
-                            {
-                                serviceIndex = i;
-                                break;
-                            }
-                        }
-                        
-                        if (serviceIndex < 0)
-                        {
-                            MessageBox.Show("Сервис не найден", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                            StatusText.Text = "Ошибка: сервис не найден";
+                            MessageBox.Show("Service not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            StatusText.Text = "Error: service not found";
                             BtnCheckToday.IsEnabled = true;
                             BtnCheckPeriod.IsEnabled = true;
                             return;
                         }
 
-                        var result = await System.Threading.Tasks.Task.Run(() =>
-                            _backupChecker.CheckBackupForPeriod(_configManager.Services[serviceIndex], startDate, endDate));
+                        var result = await Task.Run(() =>
+                            _backupChecker.CheckBackupForPeriod(service, startDate, endDate));
 
-                        // Обновляем строку сервиса
-                        _services[serviceIndex].Status = result.IsValid ? "OK" : "FAIL";
-                        if (!string.IsNullOrEmpty(result.ErrorMessage))
-                        {
-                            _services[serviceIndex].Details = result.ErrorMessage;
-                        }
-                        else if (result.MissingDates.Count > 0)
-                        {
-                            _services[serviceIndex].Details = $"Отсутствуют бэкапы: {result.MissingDates.Count} дн.";
-                        }
-                        else
-                        {
-                            _services[serviceIndex].Details = "Все бэкапы найдены";
-                        }
+                        ApplyPeriodResult(service, result, startDate, endDate);
 
-                        // Показываем отдельное окно с результатами периода
                         var resultWindow = new PeriodResultWindow(selectedName, startDate, endDate, result);
                         resultWindow.Owner = this;
                         resultWindow.ShowDialog();
                     }
-                    
-                    StatusText.Text = "Проверка завершена";
+
+                    StatusText.Text = "Check completed";
                 }
                 finally
                 {
                     BtnCheckToday.IsEnabled = true;
                     BtnCheckPeriod.IsEnabled = true;
+                }
+            }
+        }
+
+        private void ApplyPeriodResult(Service service, BackupMonitor.Core.Services.BackupChecker.CheckResult result, DateTime startDate, DateTime endDate)
+        {
+            var viewModel = FindViewModel(service);
+            if (viewModel == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(result.ErrorMessage))
+            {
+                viewModel.Status = "ERROR";
+                viewModel.Details = result.ErrorMessage;
+                return;
+            }
+
+            viewModel.Status = result.IsValid ? "OK" : "FAIL";
+            if (result.MissingDates.Count > 0)
+            {
+                viewModel.Details = $"Missing backups: {result.MissingDates.Count} days ({startDate:yyyy-MM-dd} - {endDate:yyyy-MM-dd})";
+            }
+            else
+            {
+                viewModel.Details = "All backups found";
+            }
+        }
+
+        private ServiceNodeViewModel? FindViewModel(Service service)
+        {
+            foreach (var node in _services)
+            {
+                var found = FindViewModel(node, service);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+
+            return null;
+        }
+
+        private ServiceNodeViewModel? FindViewModel(ServiceNodeViewModel node, Service service)
+        {
+            if (ReferenceEquals(node.Service, service) ||
+                (string.Equals(node.Service.Name, service.Name, StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(node.Service.Path, service.Path, StringComparison.OrdinalIgnoreCase)))
+            {
+                return node;
+            }
+
+            foreach (var child in node.Children)
+            {
+                var found = FindViewModel(child, service);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+
+            return null;
+        }
+
+        private IEnumerable<Service> FlattenServices(IEnumerable<Service> services)
+        {
+            foreach (var service in services)
+            {
+                yield return service;
+                var children = ResolveChildrenForUi(service);
+                foreach (var child in FlattenServices(children))
+                {
+                    yield return child;
                 }
             }
         }
@@ -235,56 +356,118 @@ namespace BackupMonitor
             }
         }
 
+        private void BtnAddGroup_Click(object sender, RoutedEventArgs e)
+        {
+            var bulkWindow = new BulkServiceWindow();
+            if (bulkWindow.ShowDialog() == true)
+            {
+                var service = bulkWindow.Service;
+                _configManager.AddService(service);
+                LoadServices();
+                StatusText.Text = "Группа добавлена";
+            }
+        }
+
         private void BtnEditService_Click(object sender, RoutedEventArgs e)
         {
-            if (ServicesDataGrid.SelectedIndex < 0)
+            var selectedNode = GetSelectedNode();
+            if (selectedNode == null)
             {
-                MessageBox.Show("Выберите сервис для редактирования", "Внимание", 
+                MessageBox.Show("Select a service to edit", "Warning",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            var index = ServicesDataGrid.SelectedIndex;
-            var service = _configManager.Services[index];
-            var serviceWindow = new ServiceWindow(service);
-            
+            if (selectedNode.Service.Type == ServiceTypeModel.Group)
+            {
+                MessageBox.Show("Editing groups via UI is not supported yet. Use services.json.", "Info",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var serviceWindow = new ServiceWindow(selectedNode.Service);
+
             if (serviceWindow.ShowDialog() == true)
             {
-                var updatedService = serviceWindow.Service;
-                _configManager.UpdateService(index, updatedService);
+                ApplyServiceUpdate(selectedNode.Service, serviceWindow.Service);
+                _configManager.SaveConfigurationAndSync();
                 LoadServices();
-                StatusText.Text = "Сервис обновлён";
+                StatusText.Text = "Service updated";
             }
+        }
+
+        private void ApplyServiceUpdate(Service target, Service updated)
+        {
+            target.Name = updated.Name;
+            target.Path = updated.Path;
+            target.Keywords = updated.Keywords;
+            target.DatePatterns = updated.DatePatterns;
+            target.ExpectedDayOffset = updated.ExpectedDayOffset;
+            target.CheckMode = updated.CheckMode;
+            target.FileTimeSource = updated.FileTimeSource;
+            target.MinFilesPerDay = updated.MinFilesPerDay;
+            target.FileMask = updated.FileMask;
         }
 
         private void BtnDeleteService_Click(object sender, RoutedEventArgs e)
         {
-            if (ServicesDataGrid.SelectedIndex < 0)
+            var selectedNode = GetSelectedNode();
+            if (selectedNode == null)
             {
-                MessageBox.Show("Выберите сервис для удаления", "Внимание", 
+                MessageBox.Show("Select a service to delete", "Warning",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            var result = MessageBox.Show("Вы уверены, что хотите удалить выбранный сервис?", 
-                "Подтверждение", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            
+            var result = MessageBox.Show("Are you sure you want to delete the selected service?",
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
             if (result == MessageBoxResult.Yes)
             {
-                var index = ServicesDataGrid.SelectedIndex;
-                _configManager.RemoveService(index);
-                LoadServices();
-                StatusText.Text = "Сервис удалён";
+                if (RemoveServiceFromList(_configManager.Services, selectedNode.Service))
+                {
+                    _configManager.SaveConfigurationAndSync();
+                    LoadServices();
+                    StatusText.Text = "Service removed";
+                }
             }
         }
 
-        private void ServicesDataGrid_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        private bool RemoveServiceFromList(ICollection<Service> services, Service target)
         {
-            BtnEditService.IsEnabled = ServicesDataGrid.SelectedIndex >= 0;
-            BtnDeleteService.IsEnabled = ServicesDataGrid.SelectedIndex >= 0;
+            foreach (var service in services.ToList())
+            {
+                if (ReferenceEquals(service, target))
+                {
+                    services.Remove(service);
+                    return true;
+                }
+
+                if (service.Children != null && service.Children.Count > 0)
+                {
+                    if (RemoveServiceFromList(service.Children, target))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
-        private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
+        private void ServicesTreeView_SelectedItemChanged(object sender, System.Windows.RoutedPropertyChangedEventArgs<object> e)
+        {
+            var hasSelection = GetSelectedNode() != null;
+            BtnEditService.IsEnabled = hasSelection;
+            BtnDeleteService.IsEnabled = hasSelection;
+        }
+
+        private ServiceNodeViewModel? GetSelectedNode()
+        {
+            return ServicesTreeView.SelectedItem as ServiceNodeViewModel;
+        }
+
+private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
         {
             var settingsWindow = new TelegramSettingsWindow(_configManager.TelegramConfig);
             if (settingsWindow.ShowDialog() == true)
@@ -827,6 +1010,7 @@ namespace BackupMonitor
             }
         }
 
+        
         protected override void OnClosed(EventArgs e)
         {
             _scheduler?.Stop();
@@ -835,12 +1019,21 @@ namespace BackupMonitor
         }
     }
 
-    public class ServiceViewModel : System.ComponentModel.INotifyPropertyChanged
+    public class ServiceNodeViewModel : System.ComponentModel.INotifyPropertyChanged
     {
         private string _name = string.Empty;
         private string _path = string.Empty;
         private string _status = "-";
         private string _details = string.Empty;
+
+        public ServiceNodeViewModel(Service service)
+        {
+            Service = service;
+        }
+
+        public Service Service { get; }
+
+        public ObservableCollection<ServiceNodeViewModel> Children { get; } = new ObservableCollection<ServiceNodeViewModel>();
 
         public string Name
         {

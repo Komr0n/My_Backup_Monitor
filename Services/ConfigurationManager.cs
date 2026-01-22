@@ -29,6 +29,20 @@ namespace BackupMonitor.Services
         public void SaveConfiguration() => _coreManager.SaveConfiguration();
         public void SaveTelegramConfig() => _coreManager.SaveTelegramConfig();
 
+        public void SaveConfigurationAndSync()
+        {
+            try
+            {
+                _coreManager.SaveConfiguration();
+                TrySyncServiceConfig();
+            }
+            catch (System.Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Ошибка сохранения конфигурации: {ex.Message}", "Ошибка", 
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+        }
+
         public void UpdateTelegramConfig(BackupMonitor.Core.Models.TelegramConfig config)
         {
             try

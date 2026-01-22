@@ -7,6 +7,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,10 +26,13 @@
   <ItemGroup>
     <Compile Remove="BackupMonitor.Core\**" />
     <Compile Remove="BackupMonitorService\**" />
+    <Compile Remove="BackupMonitor.Tests\**" />
     <EmbeddedResource Remove="BackupMonitor.Core\**" />
     <EmbeddedResource Remove="BackupMonitorService\**" />
+    <EmbeddedResource Remove="BackupMonitor.Tests\**" />
     <None Remove="BackupMonitor.Core\**" />
     <None Remove="BackupMonitorService\**" />
+    <None Remove="BackupMonitor.Tests\**" />
   </ItemGroup>
 
 </Project>

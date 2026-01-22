@@ -2,10 +2,12 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.ServiceProcess;
+using System.Runtime.Versioning;
 using System.Threading;
 
 namespace BackupMonitor.Services
 {
+    [SupportedOSPlatform("windows")]
     public class WindowsServiceManager
     {
         private const string ServiceName = "BackupMonitorService";

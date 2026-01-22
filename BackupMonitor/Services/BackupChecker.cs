@@ -3,6 +3,7 @@
 using BackupMonitor.Core.Services;
 using BackupMonitor.Core.Models;
 using CheckResult = BackupMonitor.Core.Services.BackupChecker.CheckResult;
+using System.Threading.Tasks;
 
 namespace BackupMonitor.Services
 {
@@ -23,6 +24,16 @@ namespace BackupMonitor.Services
         public CheckResult CheckBackupForPeriod(Service service, System.DateTime startDate, System.DateTime endDate)
         {
             return _coreChecker.CheckBackupForPeriod(service, startDate, endDate);
+        }
+
+        public Task<ServiceCheckResult> CheckServiceAsync(Service service)
+        {
+            return _coreChecker.CheckServiceAsync(service);
+        }
+
+        public Task<ServiceCheckResult> CheckServiceAsync(Service service, System.DateTime baseDate)
+        {
+            return _coreChecker.CheckServiceAsync(service, baseDate);
         }
     }
 }

@@ -1,44 +1,25 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Windows;
 using System.Windows.Controls;
-using System.Runtime.Versioning;
 using BackupMonitor.Core.Models;
 
 namespace BackupMonitor.Views
 {
     [SupportedOSPlatform("windows")]
-    public partial class ServiceWindow : Window
+    public partial class BulkServiceWindow : Window
     {
         public Service Service { get; private set; }
 
-        public ServiceWindow()
+        public BulkServiceWindow()
         {
             InitializeComponent();
             Service = new Service();
             LoadDefaultPatterns();
             LoadDefaults();
-        }
-
-        public ServiceWindow(Service service)
-        {
-            InitializeComponent();
-            Service = new Service
-            {
-                Name = service.Name,
-                Path = service.Path,
-                Keywords = new List<string>(service.Keywords ?? new List<string>()),
-                DatePatterns = new List<string>(service.DatePatterns ?? new List<string>()),
-                ExpectedDayOffset = service.ExpectedDayOffset,
-                CheckMode = service.CheckMode,
-                FileTimeSource = service.FileTimeSource,
-                MinFilesPerDay = service.MinFilesPerDay,
-                FileMask = service.FileMask,
-                Type = service.Type,
-                Required = service.Required
-            };
-            LoadService();
         }
 
         private void LoadDefaults()
@@ -47,21 +28,6 @@ namespace BackupMonitor.Views
             SelectComboItemByTag(CmbFileTimeSource, FileTimeSource.LastWriteTime.ToString());
             TxtExpectedDayOffset.Text = "0";
             TxtMinFilesPerDay.Text = "1";
-            UpdatePanels();
-        }
-
-        private void LoadService()
-        {
-            TxtServiceName.Text = Service.Name;
-            TxtPath.Text = Service.Path;
-            TxtKeywords.Text = string.Join(", ", Service.Keywords ?? new List<string>());
-            TxtDatePatterns.Text = string.Join(Environment.NewLine, Service.DatePatterns ?? new List<string>());
-            TxtExpectedDayOffset.Text = Service.ExpectedDayOffset.ToString();
-            TxtMinFilesPerDay.Text = Service.MinFilesPerDay.ToString();
-            TxtFileMask.Text = Service.FileMask ?? string.Empty;
-
-            SelectComboItemByTag(CmbCheckMode, Service.CheckMode.ToString());
-            SelectComboItemByTag(CmbFileTimeSource, Service.FileTimeSource.ToString());
             UpdatePanels();
         }
 
@@ -82,14 +48,14 @@ namespace BackupMonitor.Views
         {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
             {
-                dialog.Description = "Выберите папку с бэкапами";
+                dialog.Description = "Выберите базовую папку с подпапками";
                 dialog.ShowNewFolderButton = false;
 
-                if (!string.IsNullOrEmpty(TxtPath.Text))
+                if (!string.IsNullOrEmpty(TxtBasePath.Text))
                 {
                     try
                     {
-                        dialog.SelectedPath = TxtPath.Text;
+                        dialog.SelectedPath = TxtBasePath.Text;
                     }
                     catch
                     {
@@ -99,8 +65,38 @@ namespace BackupMonitor.Views
 
                 if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                 {
-                    TxtPath.Text = dialog.SelectedPath;
+                    TxtBasePath.Text = dialog.SelectedPath;
                 }
+            }
+        }
+
+        private void BtnLoadFolders_Click(object sender, RoutedEventArgs e)
+        {
+            var basePath = TxtBasePath.Text.Trim();
+            if (string.IsNullOrWhiteSpace(basePath))
+            {
+                MessageBox.Show("Сначала укажите базовый путь", "Внимание",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                var folders = Directory.GetDirectories(basePath, "*", SearchOption.TopDirectoryOnly)
+                    .Select(Path.GetFileName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .ToList();
+
+                TxtChildFolders.Text = string.Join(Environment.NewLine, folders);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                MessageBox.Show("Нет доступа к папке", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ошибка чтения подпапок: {ex.Message}", "Ошибка",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -119,30 +115,44 @@ namespace BackupMonitor.Views
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(TxtServiceName.Text))
+            if (string.IsNullOrWhiteSpace(TxtGroupName.Text))
             {
-                System.Windows.MessageBox.Show("Введите название сервиса", "Ошибка",
+                MessageBox.Show("Введите название группы", "Ошибка",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(TxtPath.Text))
+            if (string.IsNullOrWhiteSpace(TxtBasePath.Text))
             {
-                System.Windows.MessageBox.Show("Укажите путь к папке с бэкапами", "Ошибка",
+                MessageBox.Show("Укажите базовый путь", "Ошибка",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var folders = TxtChildFolders.Text
+                .Split(new[] { Environment.NewLine, "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(f => f.Trim())
+                .Where(f => !string.IsNullOrEmpty(f))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (folders.Count == 0)
+            {
+                MessageBox.Show("Укажите хотя бы одну подпапку", "Ошибка",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (!int.TryParse(TxtExpectedDayOffset.Text.Trim(), out var dayOffset) || dayOffset < 0)
             {
-                System.Windows.MessageBox.Show("ExpectedDayOffset должен быть числом >= 0", "Ошибка",
+                MessageBox.Show("ExpectedDayOffset должен быть числом >= 0", "Ошибка",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (!int.TryParse(TxtMinFilesPerDay.Text.Trim(), out var minFiles) || minFiles <= 0)
             {
-                System.Windows.MessageBox.Show("MinFilesPerDay должен быть числом > 0", "Ошибка",
+                MessageBox.Show("MinFilesPerDay должен быть числом > 0", "Ошибка",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -167,23 +177,29 @@ namespace BackupMonitor.Views
 
             if (checkMode == ServiceCheckMode.NameDate && patterns.Count == 0)
             {
-                System.Windows.MessageBox.Show("Укажите хотя бы одно регулярное выражение", "Ошибка",
+                MessageBox.Show("Укажите хотя бы одно регулярное выражение", "Ошибка",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            Service.Name = TxtServiceName.Text.Trim();
-            Service.Path = TxtPath.Text.Trim();
-            Service.Keywords = TxtKeywords.Text.Split(',')
-                .Select(k => k.Trim())
-                .Where(k => !string.IsNullOrEmpty(k))
-                .ToList();
-            Service.DatePatterns = patterns;
-            Service.ExpectedDayOffset = dayOffset;
-            Service.CheckMode = checkMode;
-            Service.FileTimeSource = fileTimeSource;
-            Service.MinFilesPerDay = minFiles;
-            Service.FileMask = string.IsNullOrWhiteSpace(TxtFileMask.Text) ? null : TxtFileMask.Text.Trim();
+            Service = new Service
+            {
+                Name = TxtGroupName.Text.Trim(),
+                Path = TxtBasePath.Text.Trim(),
+                Keywords = TxtKeywords.Text.Split(',')
+                    .Select(k => k.Trim())
+                    .Where(k => !string.IsNullOrEmpty(k))
+                    .ToList(),
+                DatePatterns = patterns,
+                ExpectedDayOffset = dayOffset,
+                CheckMode = checkMode,
+                FileTimeSource = fileTimeSource,
+                MinFilesPerDay = minFiles,
+                FileMask = string.IsNullOrWhiteSpace(TxtFileMask.Text) ? null : TxtFileMask.Text.Trim(),
+                Type = ServiceType.Group,
+                ChildFolders = folders,
+                UseChildFolderAsKeyword = ChkUseChildFolderAsKeyword.IsChecked == true
+            };
 
             DialogResult = true;
             Close();

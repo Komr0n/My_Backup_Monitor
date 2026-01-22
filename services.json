@@ -1,6 +1,6 @@
 [
   {
-    "Name": "Пример сервиса",
+    "Name": "Example service",
     "Path": "\\\\192.168.1.100\\backups\\example",
     "Keywords": [
       "backup",
@@ -10,7 +10,12 @@
       "(\\d{4}_\\d{2}_\\d{2})",
       "(\\d{4}-\\d{2}-\\d{2})",
       "(\\d{8})"
-    ]
+    ],
+    "ExpectedDayOffset": 0,
+    "CheckMode": "NameDate",
+    "FileTimeSource": "LastWriteTime",
+    "MinFilesPerDay": 1,
+    "FileMask": "*.bak",
+    "Type": "Single"
   }
 ]
-
