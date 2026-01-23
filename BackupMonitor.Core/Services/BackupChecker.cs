@@ -234,7 +234,7 @@ namespace BackupMonitor.Core.Services
                 result.Status = ServiceCheckStatus.OK;
             }
 
-            result.Message = $"Обязательные: {requiredOk}/{requiredCount} OK; необязательные FAIL: {optionalFail}";
+            result.Message = $"Успешно: {requiredOk}/{requiredCount} OK; Неуспешно FAIL: {optionalFail}";
             result.Details.AddRange(BuildGroupDetails(children, childResults));
             result.LastObservedBackupDate = childResults
                 .Where(r => r.LastObservedBackupDate.HasValue)
@@ -379,7 +379,7 @@ namespace BackupMonitor.Core.Services
                 {
                     result.Status = ServiceCheckStatus.FAIL;
                     result.Message = $"Нет файлов за {expectedDate:yyyy-MM-dd}";
-                    result.Details.Add($"Найдено: {foundCount} из {result.MinRequiredCount}");
+                    
                 }
             }
             catch (UnauthorizedAccessException)

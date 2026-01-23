@@ -9,3 +9,14 @@ C:\Users\User\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\
 C:\Users\User\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\refint\BackupMonitor.Core.dll
 C:\Users\User\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.pdb
 C:\Users\User\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\ref\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.deps.json
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\bin\Release\net8.0\BackupMonitor.Core.pdb
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.csproj.AssemblyReference.cache
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.csproj.CoreCompileInputs.cache
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.sourcelink.json
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\refint\BackupMonitor.Core.dll
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.pdb
+C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\ref\BackupMonitor.Core.dll

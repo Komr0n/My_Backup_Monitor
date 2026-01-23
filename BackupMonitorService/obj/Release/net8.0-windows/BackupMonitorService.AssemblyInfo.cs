@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BackupMonitorService")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a3378423ecfa67e165aadf7d0978b5e9138a4b7b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9fe0bdc2b0eecbde12e145727a84aa0004726e5b")]
 [assembly: System.Reflection.AssemblyProductAttribute("BackupMonitorService")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BackupMonitorService")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

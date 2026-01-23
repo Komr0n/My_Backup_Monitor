@@ -1924,19 +1924,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\User\\.nuget\\packages\\": {}
+    "C:\\Users\\Komron.Juraev\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\BackupMonitorService.csproj",
+      "projectUniqueName": "C:\\Users\\Komron.Juraev\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\BackupMonitorService.csproj",
       "projectName": "BackupMonitorService",
-      "projectPath": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\BackupMonitorService.csproj",
-      "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\obj\\",
+      "projectPath": "C:\\Users\\Komron.Juraev\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\BackupMonitorService.csproj",
+      "packagesPath": "C:\\Users\\Komron.Juraev\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\Komron.Juraev\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitorService\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
       "configFilePaths": [
-        "C:\\Users\\User\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\Komron.Juraev\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -1950,8 +1955,8 @@
         "net8.0-windows7.0": {
           "targetAlias": "net8.0-windows",
           "projectReferences": {
-            "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj": {
-              "projectPath": "C:\\Users\\User\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
+            "C:\\Users\\Komron.Juraev\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj": {
+              "projectPath": "C:\\Users\\Komron.Juraev\\Documents\\GitHub\\My_Backup_Monitor\\BackupMonitor.Core\\BackupMonitor.Core.csproj",
               "privateAssets": "none"
             }
           }
@@ -2022,7 +2027,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.102/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
