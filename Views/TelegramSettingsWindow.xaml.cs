@@ -18,7 +18,9 @@ namespace BackupMonitor.Views
                 BotToken = currentConfig.BotToken,
                 ChatId = currentConfig.ChatId,
                 ReportMode = currentConfig.ReportMode,
-                SendTimes = new System.Collections.Generic.List<string>(currentConfig.SendTimes)
+                SendTimes = new System.Collections.Generic.List<string>(currentConfig.SendTimes),
+                EnableCommands = currentConfig.EnableCommands,
+                AllowedChatIds = new System.Collections.Generic.List<string>(currentConfig.AllowedChatIds ?? new System.Collections.Generic.List<string>())
             };
             LoadConfig();
         }
@@ -43,6 +45,9 @@ namespace BackupMonitor.Views
             }
 
             TxtSendTimes.Text = string.Join(Environment.NewLine, Config.SendTimes);
+
+            ChkEnableCommands.IsChecked = Config.EnableCommands;
+            TxtAllowedChatIds.Text = string.Join(", ", Config.AllowedChatIds);
         }
 
         private void ChkEnabled_Checked(object sender, RoutedEventArgs e)
@@ -148,6 +153,13 @@ namespace BackupMonitor.Views
                 .Split(new[] { Environment.NewLine, "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(t => t.Trim())
                 .Where(t => !string.IsNullOrEmpty(t))
+                .ToList();
+
+            Config.EnableCommands = ChkEnableCommands.IsChecked == true;
+            Config.AllowedChatIds = TxtAllowedChatIds.Text
+                .Split(new[] { ",", Environment.NewLine, "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(id => id.Trim())
+                .Where(id => !string.IsNullOrEmpty(id))
                 .ToList();
 
             DialogResult = true;

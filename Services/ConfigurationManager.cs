@@ -109,20 +109,76 @@ namespace BackupMonitor.Services
                     return;
                 }
 
+                var guiConfigDir = System.AppDomain.CurrentDomain.BaseDirectory;
+
                 if (!ServiceInstallerHelper.IsRunningAsAdministrator())
                 {
-                    System.Windows.MessageBox.Show(
-                        "Служба установлена, но ее конфигурация хранится в ProgramData.\n" +
-                        "Для обновления конфигурации запустите приложение от имени администратора и сохраните изменения еще раз.",
-                        "Требуются права администратора",
-                        System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Information);
-                    return;
+                    // Запрос согласия на elevation (UAC) для синхронизации конфига
+                    var consent = System.Windows.MessageBox.Show(
+                        "Служба установлена. Для применения изменений к работающей службе\n" +
+                        "нужно обновить конфигурацию в ProgramData (требуются права администратора).\n\n" +
+                        "Запросить права администратора сейчас?",
+                        "Синхронизация конфигурации",
+                        System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxImage.Question);
+
+                    if (consent != System.Windows.MessageBoxResult.Yes)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "Изменения сохранены локально, но служба их не увидит до ручной синхронизации.\n" +
+                            "Запустите приложение от имени администратора и сохраните изменения ещё раз.",
+                            "Локальное сохранение",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                        return;
+                    }
+
+                    // Запуск elevated-процесса для выполнения --sync-config
+                    try
+                    {
+                        var exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = exePath,
+                            Arguments = "--sync-config",
+                            Verb = "runas",
+                            UseShellExecute = true
+                        };
+                        var proc = System.Diagnostics.Process.Start(psi);
+                if (proc != null)
+                {
+                    var exited = proc.WaitForExit(15000);
+                    if (exited && proc.ExitCode == 0)
+                    {
+                        System.Windows.MessageBox.Show(
+                            "Конфигурация синхронизирована с ProgramData.\n" +
+                            "Служба применит изменения в течение минуты.",
+                            "Готово",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        System.Windows.MessageBox.Show(
+                            "Не удалось синхронизировать конфигурацию.\n" +
+                            (exited ? $"Код ошибки: {proc.ExitCode}" : "Процесс не завершился вовремя (timeout)."),
+                            "Ошибка",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Warning);
+                    }
+                }
+                return;
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                        // Пользователь отменил UAC
+                        return;
+                    }
                 }
 
-                var guiConfigDir = System.AppDomain.CurrentDomain.BaseDirectory;
-                var copied = ServiceInstallerHelper.CopyConfigFilesToConfigDir(guiConfigDir);
-                if (!copied)
+                // Уже админ — копируем напрямую
+                var result = ServiceInstallerHelper.SyncConfigNow(guiConfigDir);
+                if (result == ServiceInstallerHelper.SyncResult.Failed)
                 {
                     System.Windows.MessageBox.Show(
                         "Не удалось обновить конфигурацию службы. Проверьте права доступа и повторите попытку.",

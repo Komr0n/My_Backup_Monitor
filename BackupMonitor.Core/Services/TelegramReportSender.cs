@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using BackupMonitor.Core.Models;
 
@@ -27,61 +28,60 @@ namespace BackupMonitor.Core.Services
                 return false;
             }
 
+            var message = FormatReport(report, config.ReportMode);
+
+            if (config.ReportMode == ReportMode.FailOnly && FlattenLeafResults(report.Services).All(IsOk))
+            {
+                return false;
+            }
+
+            if (config.ReportMode == ReportMode.OkOnly && FlattenLeafResults(report.Services).All(s => !IsOk(s)))
+            {
+                return false;
+            }
+
+            var url = string.Format(TelegramApiUrl, config.BotToken);
+            var chatId = config.ChatId.Trim();
+
+            if (chatId.StartsWith("100") && chatId.Length > 10 && !chatId.StartsWith("-"))
+            {
+                chatId = "-" + chatId;
+            }
+
+            var payload = new
+            {
+                chat_id = chatId,
+                text = message,
+                parse_mode = "HTML"
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(url, content);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                return true;
+            }
+
+            // Десериализуем тело ошибки Telegram; если оно не парсится —
+            // показываем сырой ответ. try/catch только вокруг десериализации.
+            string errorMessage;
             try
             {
-                var message = FormatReport(report, config.ReportMode);
-
-                if (config.ReportMode == ReportMode.FailOnly && FlattenLeafResults(report.Services).All(IsOk))
-                {
-                    return false;
-                }
-
-                if (config.ReportMode == ReportMode.OkOnly && FlattenLeafResults(report.Services).All(s => !IsOk(s)))
-                {
-                    return false;
-                }
-
-                var url = string.Format(TelegramApiUrl, config.BotToken);
-                var chatId = config.ChatId.Trim();
-
-                if (chatId.StartsWith("100") && chatId.Length > 10 && !chatId.StartsWith("-"))
-                {
-                    chatId = "-" + chatId;
-                }
-
-                var payload = new
-                {
-                    chat_id = chatId,
-                    text = message,
-                    parse_mode = "HTML"
-                };
-
-                var json = System.Text.Json.JsonSerializer.Serialize(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PostAsync(url, content);
-                var responseContent = await response.Content.ReadAsStringAsync();
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return true;
-                }
-
-                try
-                {
-                    var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
-                    var errorMessage = errorResponse?.description ?? responseContent;
-                    throw new Exception($"Telegram API: {errorMessage}");
-                }
-                catch
-                {
-                    throw new Exception($"HTTP {response.StatusCode}: {responseContent}");
-                }
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
+                errorMessage = !string.IsNullOrWhiteSpace(errorResponse?.description)
+                    ? errorResponse.description!
+                    : responseContent;
             }
-            catch (Exception)
+            catch (JsonException)
             {
-                throw;
+                errorMessage = responseContent;
             }
+
+            throw new Exception($"Telegram API (HTTP {(int)response.StatusCode}): {errorMessage}");
         }
 
         private string FormatReport(BackupReport report, ReportMode mode)
@@ -117,32 +117,57 @@ namespace BackupMonitor.Core.Services
             if (mode == ReportMode.OkOnly && !isOk)
                 return;
 
-            var statusText = result.Status.ToString();
-            var emoji = GetStatusEmoji(result.Status);
-            var line = $"{emoji} <b>{HtmlEncode(result.ServiceName)}</b>: {HtmlEncode(statusText)}";
-            if (!string.IsNullOrWhiteSpace(result.Message))
-            {
-                line += $" ({HtmlEncode(result.Message)})";
-            }
-            sb.AppendLine(line);
+            var isGroup = result.Children != null && result.Children.Count > 0;
 
-            if (result.Children != null && result.Children.Count > 0)
+            if (isGroup)
             {
+                // Заголовок группы с пометкой и сводкой
+                var children = result.Children!;
+                var total = children.Count;
+                var okChildren = children.Count(c => c.Status == ServiceCheckStatus.OK);
+                var failChildren = children.Count(c => c.Status == ServiceCheckStatus.FAIL);
+                var errorChildren = children.Count(c => c.Status == ServiceCheckStatus.ERROR);
+
+                var groupEmoji = GetStatusEmoji(result.Status);
+                var groupLabel = $"📁 <b>Группа «{HtmlEncode(result.ServiceName)}»</b>: ";
+                if (okChildren == total)
+                    groupLabel += $"все OK ({total}/{total})";
+                else
+                    groupLabel += $"OK: {okChildren} | FAIL: {failChildren} | ERROR: {errorChildren} из {total}";
+                sb.AppendLine(groupLabel);
+
+                if (!string.IsNullOrWhiteSpace(result.Message))
+                {
+                    sb.AppendLine($"   <i>{HtmlEncode(result.Message)}</i>");
+                }
+
                 sb.AppendLine("<blockquote>");
-                foreach (var child in result.Children)
+                foreach (var child in children)
                 {
                     AppendChildLine(sb, child);
                 }
                 sb.AppendLine("</blockquote>");
             }
-            else if (result.Details != null && result.Details.Count > 0)
+            else
             {
-                sb.AppendLine("<blockquote>");
-                foreach (var detail in result.Details)
+                var statusText = result.Status.ToString();
+                var emoji = GetStatusEmoji(result.Status);
+                var line = $"{emoji} <b>{HtmlEncode(result.ServiceName)}</b>: {HtmlEncode(statusText)}";
+                if (!string.IsNullOrWhiteSpace(result.Message))
                 {
-                    sb.AppendLine($"<i>{HtmlEncode(detail)}</i>");
+                    line += $" ({HtmlEncode(result.Message)})";
                 }
-                sb.AppendLine("</blockquote>");
+                sb.AppendLine(line);
+
+                if (result.Details != null && result.Details.Count > 0)
+                {
+                    sb.AppendLine("<blockquote>");
+                    foreach (var detail in result.Details)
+                    {
+                        sb.AppendLine($"<i>{HtmlEncode(detail)}</i>");
+                    }
+                    sb.AppendLine("</blockquote>");
+                }
             }
         }
 

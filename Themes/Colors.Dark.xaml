@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Тёмная тема: те же ключи что в Colors.xaml, для подмены через DynamicResource. -->
+    <!-- Статусы оставляем теми же — они должны быть различимы в обеих темах. -->
+    <SolidColorBrush x:Key="StatusDefault" Color="#FF9E9E9E"/>
+    <SolidColorBrush x:Key="StatusOk" Color="#4CAF50"/>
+    <SolidColorBrush x:Key="StatusWarning" Color="#FFB300"/>
+    <SolidColorBrush x:Key="StatusFail" Color="#EF5350"/>
+    <SolidColorBrush x:Key="StatusError" Color="#8D6E63"/>
+
+    <!-- Поверхности -->
+    <SolidColorBrush x:Key="WindowBackground" Color="#1E1E2E"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#2B2B3C"/>
+    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#33334A"/>
+    <SolidColorBrush x:Key="ToolbarBrush" Color="#252533"/>
+
+    <!-- Акценты -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#60A5FA"/>
+    <SolidColorBrush x:Key="AccentDarkBrush" Color="#3B82F6"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#EF4444"/>
+
+    <!-- Текст -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9CA3AF"/>
+
+    <!-- Границы -->
+    <SolidColorBrush x:Key="BorderBrush" Color="#3F3F55"/>
+
+</ResourceDictionary>

@@ -15,27 +15,38 @@ namespace BackupMonitorService
 {
     public class BackupMonitorWorker : BackgroundService
     {
+        private const long MaxLogSizeBytes = 5 * 1024 * 1024; // 5 МБ до ротации
+
         private readonly ILogger<BackupMonitorWorker> _logger;
         private readonly BackupConfigManager _configManager;
         private readonly BackupChecker _backupChecker;
         private readonly TelegramReportSender _telegramSender;
+        private readonly TelegramCommandBot _commandBot;
         private readonly HashSet<string> _sentTimesToday = new HashSet<string>();
         private readonly object _lockObject = new object();
         private readonly string _logFilePath;
+        private readonly string _stateFilePath;
+        private readonly string _heartbeatFilePath;
 
         public BackupMonitorWorker(
             ILogger<BackupMonitorWorker> logger,
             BackupConfigManager configManager,
             BackupChecker backupChecker,
-            TelegramReportSender telegramSender)
+            TelegramReportSender telegramSender,
+            TelegramCommandBot commandBot)
         {
             _logger = logger;
             _configManager = configManager;
             _backupChecker = backupChecker;
             _telegramSender = telegramSender;
+            _commandBot = commandBot;
 
-            var serviceConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BackupMonitorService");
+            var serviceConfigDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "BackupMonitorService");
             _logFilePath = Path.Combine(serviceConfigDir, "service.log");
+            _stateFilePath = Path.Combine(serviceConfigDir, ".sentstate.json");
+            _heartbeatFilePath = Path.Combine(serviceConfigDir, ".heartbeat");
 
             _logger.LogInformation("BackupMonitorWorker initialized via Dependency Injection.");
         }
@@ -44,89 +55,142 @@ namespace BackupMonitorService
         {
             _logger.LogInformation("BackupMonitorService запущен в {time}", DateTimeOffset.Now);
 
+            // Запускаем бот команд в параллельном background-таске.
+            // Бот работает постоянно: если команды выключены или нет AllowedChatIds,
+            // он ждёт и периодически перепроверяет конфиг, чтобы активироваться
+            // сразу после включения без перезапуска службы.
+            var botTask = Task.Run(() => RunBotSafelyAsync(stoppingToken), stoppingToken);
+
+            // Восстанавливаем состояние отправленных отчётов с прошлого запуска,
+            // чтобы избежать повторной отправки при рестарте службы в минуту отправки.
+            LoadSentState();
+
             using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
 
-            while (!stoppingToken.IsCancellationRequested && await timer.WaitForNextTickAsync(stoppingToken))
+            try
+            {
+                while (!stoppingToken.IsCancellationRequested && await timer.WaitForNextTickAsync(stoppingToken))
+                {
+                    WriteHeartbeat();
+
+                    try
+                    {
+                        _configManager.ReloadConfiguration();
+                        var config = _configManager.TelegramConfig;
+
+                        if (!config.Enabled)
+                        {
+                            WriteFileLog("Telegram отключен: Enabled=false");
+                            continue;
+                        }
+                        if (config.SendTimes == null || config.SendTimes.Count == 0)
+                        {
+                            WriteFileLog("Нет времени отправки: SendTimes пуст");
+                            continue;
+                        }
+
+                        var now = DateTime.Now;
+                        var todayKey = now.ToString("yyyy-MM-dd");
+                        var tolerance = TimeSpan.FromMinutes(2);
+
+                        lock (_lockObject)
+                        {
+                            if (!_sentTimesToday.Contains(todayKey))
+                            {
+                                _sentTimesToday.Clear();
+                                _sentTimesToday.Add(todayKey);
+                                _logger.LogInformation("Новый день: {todayKey}, сброс списка отправленных отчетов", todayKey);
+                                WriteFileLog($"Новый день: {todayKey}");
+                            }
+                        }
+
+                        foreach (var sendTime in config.SendTimes)
+                        {
+                            if (string.IsNullOrWhiteSpace(sendTime)) continue;
+
+                            var timeKey = $"{todayKey}_{sendTime}";
+                            bool alreadySent;
+                            lock (_lockObject)
+                            {
+                                alreadySent = _sentTimesToday.Contains(timeKey);
+                            }
+
+                            if (alreadySent) continue;
+
+                            if (ShouldSend(now, sendTime, tolerance))
+                            {
+                                _logger.LogInformation("Время отправки наступило: {currentTime} ~ {sendTime}", now.ToString("HH:mm"), sendTime);
+                                WriteFileLog($"Отправка по расписанию: now={now:HH:mm:ss}, scheduled={sendTime}");
+                                lock (_lockObject)
+                                {
+                                    _sentTimesToday.Add(timeKey);
+                                }
+                                SaveSentState();
+
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await SendScheduledReportAsync(config);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Ошибка при отправке запланированного отчета");
+                                        WriteFileLog($"Ошибка отправки: {ex.Message}");
+                                    }
+                                }, stoppingToken);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Ошибка в основном цикле службы");
+                        WriteFileLog($"Ошибка цикла: {ex.Message}");
+                    }
+                }
+            }
+            finally
+            {
+                // Останавливаем бот и ждём его завершения
+                _commandBot.Stop();
+                try { await botTask; }
+                catch (OperationCanceledException) { /* ожидаемо */ }
+                catch (Exception ex) { _logger.LogWarning(ex, "Ошибка при завершении бота команд"); }
+            }
+        }
+
+        /// <summary>
+        /// Запускает бот команд с устойчивостью к ошибкам: при исключении
+        /// перезапускает цикл, пока не запрошена отмена.
+        /// </summary>
+        private async Task RunBotSafelyAsync(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    _configManager.ReloadConfiguration();
-                    var config = _configManager.TelegramConfig;
-
-                    if (!config.Enabled)
-                    {
-                        WriteFileLog("Telegram отключен: Enabled=false");
-                        continue;
-                    }
-                    if (config.SendTimes == null || config.SendTimes.Count == 0)
-                    {
-                        WriteFileLog("Нет времени отправки: SendTimes пуст");
-                        continue;
-                    }
-
-                    var now = DateTime.Now;
-                    var todayKey = now.ToString("yyyy-MM-dd");
-                    var tolerance = TimeSpan.FromMinutes(2);
-
-                    lock (_lockObject)
-                    {
-                        if (!_sentTimesToday.Contains(todayKey))
-                        {
-                            _sentTimesToday.Clear();
-                            _sentTimesToday.Add(todayKey);
-                            _logger.LogInformation("Новый день: {todayKey}, сброс списка отправленных отчетов", todayKey);
-                            WriteFileLog($"Новый день: {todayKey}");
-                        }
-                    }
-
-                    foreach (var sendTime in config.SendTimes)
-                    {
-                        if (string.IsNullOrWhiteSpace(sendTime)) continue;
-
-                        var timeKey = $"{todayKey}_{sendTime}";
-                        bool alreadySent;
-                        lock (_lockObject)
-                        {
-                            alreadySent = _sentTimesToday.Contains(timeKey);
-                        }
-
-                        if (alreadySent) continue;
-
-                        if (ShouldSend(now, sendTime, tolerance))
-                        {
-                            _logger.LogInformation("Время отправки наступило: {currentTime} ~ {sendTime}", now.ToString("HH:mm"), sendTime);
-                            WriteFileLog($"Отправка по расписанию: now={now:HH:mm:ss}, scheduled={sendTime}");
-                            lock (_lockObject)
-                            {
-                                _sentTimesToday.Add(timeKey);
-                            }
-
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    await SendScheduledReportAsync(config);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Ошибка при отправке запланированного отчета");
-                                    WriteFileLog($"Ошибка отправки: {ex.Message}");
-                                }
-                            }, stoppingToken);
-                        }
-                    }
+                    await _commandBot.StartAsync(stoppingToken);
+                    return; // бот завершился штатно
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Ошибка в основном цикле службы");
-                    WriteFileLog($"Ошибка цикла: {ex.Message}");
+                    _logger.LogError(ex, "Критическая ошибка бота команд, перезапуск через 10 сек");
+                    WriteFileLog($"Ошибка бота команд: {ex.Message}");
+                    try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
+                    catch (OperationCanceledException) { return; }
                 }
             }
         }
 
         private bool ShouldSend(DateTime now, string scheduledTime, TimeSpan tolerance)
         {
-            if (!TimeSpan.TryParseExact(scheduledTime, "hh\\:mm", CultureInfo.InvariantCulture, out var scheduled))
+            // "HH" = 24-часовой формат (0-23). Бывший "hh" был 12-часовым (0-11)
+            // — расписание после 12:00 никогда не срабатывало.
+            if (!TimeSpan.TryParseExact(scheduledTime, "HH\\:mm", CultureInfo.InvariantCulture, out var scheduled))
             {
                 _logger.LogWarning("Неверный формат времени: {sendTime}", scheduledTime);
                 WriteFileLog($"Неверный формат времени: {scheduledTime}");
@@ -206,10 +270,125 @@ namespace BackupMonitorService
             await base.StopAsync(stoppingToken);
         }
 
+        /// <summary>
+        /// Записывает текущий timestamp в heartbeat-файл. GUI может по нему
+        /// определить, жива ли служба (если timestamp старее нескольких минут,
+        /// значит служба зависла или не запускалась).
+        /// </summary>
+        private void WriteHeartbeat()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_heartbeatFilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                File.WriteAllText(_heartbeatFilePath, DateTime.Now.ToString("O"));
+            }
+            catch
+            {
+                // heartbeat не критичен
+            }
+        }
+
+        /// <summary>
+        /// Сохраняет список отправленных отчётов (на сегодня) в JSON-файл,
+        /// чтобы пережить перезапуск службы.
+        /// </summary>
+        private void SaveSentState()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(_stateFilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                List<string> snapshot;
+                lock (_lockObject)
+                {
+                    snapshot = new List<string>(_sentTimesToday);
+                }
+
+                var json = System.Text.Json.JsonSerializer.Serialize(new { sent = snapshot });
+                File.WriteAllText(_stateFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                WriteFileLog($"Не удалось сохранить sent-state: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Загружает список отправленных отчётов с прошлого запуска.
+        /// Удаляет ключи не за сегодня — они уже не актуальны.
+        /// </summary>
+        private void LoadSentState()
+        {
+            try
+            {
+                if (!File.Exists(_stateFilePath)) return;
+                var json = File.ReadAllText(_stateFilePath);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("sent", out var sentEl)) return;
+
+                var todayKey = DateTime.Now.ToString("yyyy-MM-dd");
+                lock (_lockObject)
+                {
+                    _sentTimesToday.Clear();
+                    foreach (var item in sentEl.EnumerateArray())
+                    {
+                        var v = item.GetString();
+                        if (string.IsNullOrEmpty(v)) continue;
+                        // Сохраняем только ключи за сегодня
+                        if (v.StartsWith(todayKey) || v == todayKey)
+                        {
+                            _sentTimesToday.Add(v);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteFileLog($"Не удалось загрузить sent-state: {ex.Message}");
+            }
+        }
+
         private void WriteFileLog(string message)
         {
             try
             {
+                var dir = Path.GetDirectoryName(_logFilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                // Ротация лога: при превышении лимита переименовываем текущий
+                // лог в .log.1 (предыдущий .1 удаляем) и начинаем новый файл.
+                try
+                {
+                    if (File.Exists(_logFilePath))
+                    {
+                        var fileInfo = new FileInfo(_logFilePath);
+                        if (fileInfo.Length > MaxLogSizeBytes)
+                        {
+                            var backupLog = _logFilePath + ".1";
+                            if (File.Exists(backupLog))
+                            {
+                                File.Delete(backupLog);
+                            }
+                            File.Move(_logFilePath, backupLog);
+                        }
+                    }
+                }
+                catch
+                {
+                    // если ротация не удалась, продолжаем писать в текущий файл
+                }
+
                 var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}";
                 File.AppendAllText(_logFilePath, line);
             }

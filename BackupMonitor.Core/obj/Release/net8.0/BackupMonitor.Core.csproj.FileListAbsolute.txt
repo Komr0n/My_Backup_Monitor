@@ -20,3 +20,6 @@ C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj
 C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\refint\BackupMonitor.Core.dll
 C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\BackupMonitor.Core.pdb
 C:\Users\Komron.Juraev\Documents\GitHub\My_Backup_Monitor\BackupMonitor.Core\obj\Release\net8.0\ref\BackupMonitor.Core.dll
+C:\Users\user\AppData\Local\Temp\bmtest\BackupMonitor.Core.deps.json
+C:\Users\user\AppData\Local\Temp\bmtest\BackupMonitor.Core.dll
+C:\Users\user\AppData\Local\Temp\bmtest\BackupMonitor.Core.pdb

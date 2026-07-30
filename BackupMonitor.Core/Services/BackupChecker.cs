@@ -98,6 +98,7 @@ namespace BackupMonitor.Core.Services
                 }
 
                 var minRequired = NormalizeMinRequired(service.MinFilesPerDay);
+                var minSizeThreshold = service.MinFileSizeBytes;
                 var countsByDate = new Dictionary<DateTime, int>();
                 var anyExtracted = false;
 
@@ -114,6 +115,26 @@ namespace BackupMonitor.Core.Services
                     if (day < startDate.Date || day > endDate.Date)
                     {
                         continue;
+                    }
+
+                    // Проверка размера для периодической проверки: слишком маленькие
+                    // файлы не засчитываются.
+                    if (minSizeThreshold > 0)
+                    {
+                        long fileSize;
+                        try
+                        {
+                            fileSize = new FileInfo(file).Length;
+                        }
+                        catch
+                        {
+                            fileSize = 0;
+                        }
+
+                        if (fileSize < minSizeThreshold)
+                        {
+                            continue;
+                        }
                     }
 
                     countsByDate[day] = countsByDate.TryGetValue(day, out var count) ? count + 1 : 1;
@@ -245,7 +266,7 @@ namespace BackupMonitor.Core.Services
             return result;
         }
 
-        private List<Service> ResolveChildren(Service service)
+        public static List<Service> ResolveChildren(Service service)
         {
             if (service.Children != null && service.Children.Count > 0)
             {
@@ -336,7 +357,12 @@ namespace BackupMonitor.Core.Services
 
                 var foundCount = 0;
                 var extractedCount = 0;
+                var tooSmallCount = 0;
+                long totalFoundSize = 0;
+                long minFoundSize = long.MaxValue;
+                long maxFoundSize = 0;
                 DateTime? lastObserved = null;
+                var minSizeThreshold = service.MinFileSizeBytes;
 
                 foreach (var file in files)
                 {
@@ -353,13 +379,43 @@ namespace BackupMonitor.Core.Services
                         lastObserved = day;
                     }
 
-                    if (day == expectedDate.Date)
+                    if (day != expectedDate.Date)
                     {
-                        foundCount++;
+                        continue;
                     }
+
+                    // Файл за ожидаемую дату — проверяем размер.
+                    long fileSize;
+                    try
+                    {
+                        fileSize = new FileInfo(file).Length;
+                    }
+                    catch
+                    {
+                        fileSize = 0;
+                    }
+
+                    if (minSizeThreshold > 0 && fileSize < minSizeThreshold)
+                    {
+                        // Слишком маленький — подозрение на пустой/битый бэкап.
+                        tooSmallCount++;
+                        result.Details.Add(
+                            $"Файл слишком мал: {System.IO.Path.GetFileName(file)} " +
+                            $"({FormatFileSize(fileSize)} < {FormatFileSize(minSizeThreshold)})");
+                        continue;
+                    }
+
+                    foundCount++;
+                    totalFoundSize += fileSize;
+                    if (fileSize < minFoundSize) minFoundSize = fileSize;
+                    if (fileSize > maxFoundSize) maxFoundSize = fileSize;
                 }
 
                 result.FoundCount = foundCount;
+                result.TooSmallCount = tooSmallCount;
+                result.TotalFoundSizeBytes = totalFoundSize;
+                result.MinFoundFileSizeBytes = minFoundSize == long.MaxValue ? 0 : minFoundSize;
+                result.MaxFoundFileSizeBytes = maxFoundSize;
                 result.LastObservedBackupDate = lastObserved;
 
                 if (service.CheckMode == ServiceCheckMode.NameDate && extractedCount == 0)
@@ -374,12 +430,28 @@ namespace BackupMonitor.Core.Services
                 {
                     result.Status = ServiceCheckStatus.OK;
                     result.Message = $"Найдено файлов за {expectedDate:yyyy-MM-dd}: {foundCount}";
+                    if (tooSmallCount > 0)
+                    {
+                        result.Message += $", подозрительно маленьких: {tooSmallCount}";
+                    }
+                    if (totalFoundSize > 0)
+                    {
+                        result.Message += $", размер: {FormatFileSize(totalFoundSize)}";
+                    }
                 }
                 else
                 {
-                    result.Status = ServiceCheckStatus.FAIL;
-                    result.Message = $"Нет файлов за {expectedDate:yyyy-MM-dd}";
-                    
+                    // Файлы за дату есть, но все слишком маленькие → ERROR (файлы повреждены/пустые).
+                    if (tooSmallCount > 0 && foundCount == 0)
+                    {
+                        result.Status = ServiceCheckStatus.ERROR;
+                        result.Message = $"Все файлы за {expectedDate:yyyy-MM-dd} меньше {FormatFileSize(minSizeThreshold)}";
+                    }
+                    else
+                    {
+                        result.Status = ServiceCheckStatus.FAIL;
+                        result.Message = $"Нет файлов за {expectedDate:yyyy-MM-dd}";
+                    }
                 }
             }
             catch (UnauthorizedAccessException)
@@ -442,7 +514,15 @@ namespace BackupMonitor.Core.Services
             return minRequired <= 0 ? 1 : minRequired;
         }
 
-        private DateTime? ExtractDateFromFileName(string fileName, List<string> patterns)
+        public static string FormatFileSize(long bytes)
+        {
+            if (bytes < 1024) return $"{bytes} Б";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} КБ";
+            if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} МБ";
+            return $"{bytes / (1024.0 * 1024 * 1024):F2} ГБ";
+        }
+
+            private DateTime? ExtractDateFromFileName(string fileName, List<string> patterns)
         {
             var dateFromDayName = TryExtractDateWithDayOfWeek(fileName);
             if (dateFromDayName.HasValue)
@@ -454,7 +534,8 @@ namespace BackupMonitor.Core.Services
             {
                 try
                 {
-                    var match = Regex.Match(fileName, pattern);
+                    // Таймаут 5 секунд — защита от ReDoS при пользовательских паттернах.
+                    var match = Regex.Match(fileName, pattern, RegexOptions.None, TimeSpan.FromSeconds(5));
                     if (match.Success)
                     {
                         string dateString;
@@ -489,7 +570,7 @@ namespace BackupMonitor.Core.Services
                 }
             }
 
-            return TryExtractDateWithStandardPatterns(fileName);
+            return TryExtractDateWithStandardPatterns(fileName, skipDayOfWeek: true);
         }
 
         private DateTime? TryParseDate(string dateString)
@@ -503,6 +584,18 @@ namespace BackupMonitor.Core.Services
             if (DateTime.TryParseExact(dateString, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var date2))
                 return date2;
 
+            // dd.MM.yyyy / dd.MM.yy / dd.MM / dd/MM/yyyy и т.д.
+            if (DateTime.TryParseExact(dateString, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out var dotDate))
+                return dotDate;
+            if (DateTime.TryParseExact(dateString, "dd.MM.yy", null, System.Globalization.DateTimeStyles.None, out var dotDate2))
+                return dotDate2;
+            if (DateTime.TryParseExact(dateString, "dd/MM/yyyy", null, System.Globalization.DateTimeStyles.None, out var slashDate))
+                return slashDate;
+            if (DateTime.TryParseExact(dateString, "dd-MM-yyyy", null, System.Globalization.DateTimeStyles.None, out var dashDate))
+                return dashDate;
+            if (DateTime.TryParseExact(dateString, "dd-MM-yy", null, System.Globalization.DateTimeStyles.None, out var dashDate2))
+                return dashDate2;
+
             if (dateString.Length == 8 && dateString.All(char.IsDigit))
             {
                 if (DateTime.TryParseExact(dateString, "ddMMyyyy", null, System.Globalization.DateTimeStyles.None, out var date3))
@@ -513,6 +606,13 @@ namespace BackupMonitor.Core.Services
 
                 if (DateTime.TryParseExact(dateString, "MMddyyyy", null, System.Globalization.DateTimeStyles.None, out var date5c))
                     return date5c;
+            }
+
+            // 6 цифр: ddMMyy
+            if (dateString.Length == 6 && dateString.All(char.IsDigit))
+            {
+                if (DateTime.TryParseExact(dateString, "ddMMyy", null, System.Globalization.DateTimeStyles.None, out var date6))
+                    return date6;
             }
 
             if (DateTime.TryParse(dateString, out var date5))
@@ -562,8 +662,9 @@ namespace BackupMonitor.Core.Services
             return null;
         }
 
-        private DateTime? TryExtractDateWithStandardPatterns(string fileName)
+        private DateTime? TryExtractDateWithStandardPatterns(string fileName, bool skipDayOfWeek = false)
         {
+            // yyyy_MM_dd
             var match1 = Regex.Match(fileName, @"(\d{4}_\d{2}_\d{2})");
             if (match1.Success)
             {
@@ -571,6 +672,7 @@ namespace BackupMonitor.Core.Services
                 if (date.HasValue) return date;
             }
 
+            // yyyy-MM-dd
             var match2 = Regex.Match(fileName, @"(\d{4}-\d{2}-\d{2})");
             if (match2.Success)
             {
@@ -578,8 +680,28 @@ namespace BackupMonitor.Core.Services
                 if (date.HasValue) return date;
             }
 
-            var dateFromDayName = TryExtractDateWithDayOfWeek(fileName);
-            if (dateFromDayName.HasValue) return dateFromDayName;
+            // dd.MM.yyyy и dd.MM.yy (точки/дефисы — самый частый формат в РФ)
+            // ВАЖНО: \d{4} должен идти ПЕРЕД \d{2} в alternation, иначе для "2026"
+            // сматчится только "20" (жадность regex слева направо).
+            var matchDot = Regex.Match(fileName, @"(0[1-9]|[12][0-9]|3[01])[.\-/](0[1-9]|1[0-2])[.\-/](\d{4}|\d{2})");
+            if (matchDot.Success && matchDot.Groups.Count >= 4)
+            {
+                var day = matchDot.Groups[1].Value;
+                var month = matchDot.Groups[2].Value;
+                var year = matchDot.Groups[3].Value;
+                // 2-значный год → 4-значный (20YY для 00-99)
+                if (year.Length == 2)
+                    year = "20" + year;
+                var dateString = $"{day}.{month}.{year}";
+                if (DateTime.TryParseExact(dateString, "dd.MM.yyyy", null, System.Globalization.DateTimeStyles.None, out var dotDate))
+                    return dotDate;
+            }
+
+            if (!skipDayOfWeek)
+            {
+                var dateFromDayName = TryExtractDateWithDayOfWeek(fileName);
+                if (dateFromDayName.HasValue) return dateFromDayName;
+            }
 
             var match3 = Regex.Match(fileName, @"(0[1-9]|[12][0-9]|3[01])(0[1-9]|1[0-2])(20\d{2})");
             if (match3.Success && match3.Groups.Count >= 4)

@@ -21,8 +21,10 @@ namespace BackupMonitor.Views
             LoadDefaults();
         }
 
-        public ServiceWindow(Service service)
-        {
+            public ServiceWindow(Service service)
+            {
+                if (service == null) throw new ArgumentNullException(nameof(service));
+
             InitializeComponent();
             Service = new Service
             {
@@ -34,6 +36,7 @@ namespace BackupMonitor.Views
                 CheckMode = service.CheckMode,
                 FileTimeSource = service.FileTimeSource,
                 MinFilesPerDay = service.MinFilesPerDay,
+                MinFileSizeBytes = service.MinFileSizeBytes,
                 FileMask = service.FileMask,
                 Type = service.Type,
                 Required = service.Required
@@ -47,6 +50,7 @@ namespace BackupMonitor.Views
             SelectComboItemByTag(CmbFileTimeSource, FileTimeSource.LastWriteTime.ToString());
             TxtExpectedDayOffset.Text = "0";
             TxtMinFilesPerDay.Text = "1";
+            TxtMinFileSizeBytes.Text = "0";
             UpdatePanels();
         }
 
@@ -58,6 +62,7 @@ namespace BackupMonitor.Views
             TxtDatePatterns.Text = string.Join(Environment.NewLine, Service.DatePatterns ?? new List<string>());
             TxtExpectedDayOffset.Text = Service.ExpectedDayOffset.ToString();
             TxtMinFilesPerDay.Text = Service.MinFilesPerDay.ToString();
+            TxtMinFileSizeBytes.Text = Service.MinFileSizeBytes.ToString();
             TxtFileMask.Text = Service.FileMask ?? string.Empty;
 
             SelectComboItemByTag(CmbCheckMode, Service.CheckMode.ToString());
@@ -147,6 +152,13 @@ namespace BackupMonitor.Views
                 return;
             }
 
+            if (!long.TryParse(TxtMinFileSizeBytes.Text.Trim(), out var minSizeBytes) || minSizeBytes < 0)
+            {
+                System.Windows.MessageBox.Show("Минимальный размер файла должен быть числом >= 0 (0 = не проверять)", "Ошибка",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             var checkModeTag = GetSelectedTag(CmbCheckMode);
             if (!Enum.TryParse<ServiceCheckMode>(checkModeTag, out var checkMode))
             {
@@ -183,6 +195,7 @@ namespace BackupMonitor.Views
             Service.CheckMode = checkMode;
             Service.FileTimeSource = fileTimeSource;
             Service.MinFilesPerDay = minFiles;
+            Service.MinFileSizeBytes = minSizeBytes;
             Service.FileMask = string.IsNullOrWhiteSpace(TxtFileMask.Text) ? null : TxtFileMask.Text.Trim();
 
             DialogResult = true;

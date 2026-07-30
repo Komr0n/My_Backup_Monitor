@@ -85,7 +85,13 @@ namespace BackupMonitor.Services
                     int.TryParse(scheduledParts[0], out var scheduledHour) &&
                     int.TryParse(scheduledParts[1], out var scheduledMinute))
                 {
-                    return currentHour == scheduledHour && currentMinute == scheduledMinute;
+                    if (currentHour != scheduledHour)
+                        return false;
+
+                    // Таймер тикает каждые 30 сек, поэтому используем window ± 1 минуту,
+                    // чтобы не пропустить отправку если тик пришёлся на соседнюю секунду.
+                    var diff = currentMinute - scheduledMinute;
+                    return diff is >= -1 and <= 1;
                 }
             }
             return false;

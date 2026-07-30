@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Status palette (matches MainWindow.xaml hardcoded values) -->
+    <SolidColorBrush x:Key="StatusDefault" Color="#FF9E9E9E"/>
+    <SolidColorBrush x:Key="StatusOk" Color="#FF2E7D32"/>
+    <SolidColorBrush x:Key="StatusWarning" Color="#FFF9A825"/>
+    <SolidColorBrush x:Key="StatusFail" Color="#FFC62828"/>
+    <SolidColorBrush x:Key="StatusError" Color="#FF6D4C41"/>
+
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="WindowBackground" Color="#F5F5F7"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#FAFAFA"/>
+    <SolidColorBrush x:Key="ToolbarBrush" Color="#FFFFFF"/>
+
+    <!-- Accents -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+    <SolidColorBrush x:Key="AccentDarkBrush" Color="#2563EB"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#DC2626"/>
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1F2937"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#6B7280"/>
+
+    <!-- Borders -->
+    <SolidColorBrush x:Key="BorderBrush" Color="#E5E7EB"/>
+
+</ResourceDictionary>

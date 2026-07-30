@@ -12,6 +12,7 @@ namespace BackupMonitor.Core.Services
         private const string ConfigFileName = "services.json";
         private const string AppConfigFileName = "appconfig.json";
         private List<Service> _services = new List<Service>();
+        private List<Service>? _lastValidServices;
         private TelegramConfig _telegramConfig = new TelegramConfig();
 
         public List<Service> Services => _services;
@@ -26,26 +27,77 @@ namespace BackupMonitor.Core.Services
             LoadTelegramConfig();
         }
 
+        /// <summary>
+        /// Возвращает список директорий, где может лежать конфиг, в порядке приоритета.
+        /// Основная (_configDirectory) — первая, затем fallback-варианты.
+        /// </summary>
+        private IEnumerable<string> GetConfigSearchPaths()
+        {
+            // 1. Основная директория (ProgramData для службы, BaseDirectory для GUI)
+            yield return _configDirectory;
+
+            // 2. Директория приложения (BaseDirectory) — если основная другая
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            if (!string.Equals(baseDir, _configDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return baseDir;
+            }
+
+            // 3. ProgramData\BackupMonitorService — для GUI при поиске конфига службы
+            var programData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "BackupMonitorService");
+            if (!string.Equals(programData, _configDirectory, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(programData, baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return programData;
+            }
+        }
+
+        private string? ResolveConfigFile(string fileName)
+        {
+            foreach (var dir in GetConfigSearchPaths())
+            {
+                var path = Path.Combine(dir, fileName);
+                if (File.Exists(path))
+                    return path;
+            }
+            return null;
+        }
+
         public void LoadConfiguration()
         {
             try
             {
-                var configPath = Path.Combine(_configDirectory, ConfigFileName);
-                if (File.Exists(configPath))
+                var configPath = ResolveConfigFile(ConfigFileName);
+                if (configPath != null)
                 {
                     var json = File.ReadAllText(configPath);
-                    _services = JsonConvert.DeserializeObject<List<Service>>(json) ?? new List<Service>();
+                    var loaded = JsonConvert.DeserializeObject<List<Service>>(json);
+                    // Сохраняем предыдущий список, чтобы при ошибке десериализации
+                    // (например, файл пишется GUI в этот момент) не потерять сервисы.
+                    _services = loaded ?? new List<Service>();
+                    _lastValidServices = new List<Service>(_services);
                 }
                 else
                 {
                     _services = new List<Service>();
+                    _lastValidServices = new List<Service>();
                 }
             }
             catch (Exception ex)
             {
-                // Логируем ошибку без использования MessageBox (так как это общая библиотека)
                 System.Diagnostics.Debug.WriteLine($"Ошибка загрузки конфигурации: {ex.Message}");
-                _services = new List<Service>();
+                // Не затираем предыдущий успешный список — лучше работать со старым,
+                // чем молча обнулить все сервисы.
+                if (_lastValidServices != null)
+                {
+                    _services = new List<Service>(_lastValidServices);
+                }
+                else if (_services == null)
+                {
+                    _services = new List<Service>();
+                }
             }
         }
 
@@ -53,15 +105,15 @@ namespace BackupMonitor.Core.Services
         {
             try
             {
-                var appConfigPath = Path.Combine(_configDirectory, AppConfigFileName);
-                if (File.Exists(appConfigPath))
+                var appConfigPath = ResolveConfigFile(AppConfigFileName);
+                if (appConfigPath != null)
                 {
                     var json = File.ReadAllText(appConfigPath);
                     var appConfig = JsonConvert.DeserializeObject<AppConfig>(json);
                     if (appConfig?.Telegram != null)
                     {
                         _telegramConfig = appConfig.Telegram;
-                        
+
                         // Исправляем Chat ID при загрузке, если нужно
                         if (!string.IsNullOrEmpty(_telegramConfig.ChatId))
                         {

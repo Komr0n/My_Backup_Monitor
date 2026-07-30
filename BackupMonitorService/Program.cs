@@ -45,6 +45,29 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<BackupChecker>();
         services.AddSingleton<TelegramReportSender>();
 
+        // TelegramCommandBot как Singleton с подключением логирования в файл службы.
+        // Лог-функция определяется здесь, чтобы бот писал в тот же service.log.
+        var serviceConfigDirForLog = configDirectory;
+        services.AddSingleton<TelegramCommandBot>(sp =>
+        {
+            var checker = sp.GetRequiredService<BackupChecker>();
+            var sender = sp.GetRequiredService<TelegramReportSender>();
+            var cfg = sp.GetRequiredService<BackupMonitor.Core.Services.ConfigurationManager>();
+            return new TelegramCommandBot(checker, sender, cfg, message =>
+            {
+                try
+                {
+                    var logPath = Path.Combine(serviceConfigDirForLog, "service.log");
+                    var dir = Path.GetDirectoryName(logPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [BOT] {message}{Environment.NewLine}";
+                    File.AppendAllText(logPath, line);
+                }
+                catch { /* логирование не должно ронять бот */ }
+            });
+        });
+
         // Основной воркер службы
         services.AddHostedService<BackupMonitorWorker>();
     })

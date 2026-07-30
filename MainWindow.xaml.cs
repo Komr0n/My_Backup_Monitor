@@ -81,41 +81,9 @@ namespace BackupMonitor
 
         private List<Service> ResolveChildrenForUi(Service service)
         {
-            if (service.Children != null && service.Children.Count > 0)
-            {
-                return service.Children;
-            }
-
-            if (service.ChildFolders == null || service.ChildFolders.Count == 0)
-            {
-                return new List<Service>();
-            }
-
-            var children = new List<Service>();
-            foreach (var folder in service.ChildFolders.Where(f => !string.IsNullOrWhiteSpace(f)))
-            {
-                var childName = folder.Trim();
-                var childKeywords = (service.Keywords != null && service.Keywords.Count > 0)
-                    ? new List<string>(service.Keywords)
-                    : (service.UseChildFolderAsKeyword ? new List<string> { childName } : new List<string>());
-
-                children.Add(new Service
-                {
-                    Name = childName,
-                    Path = Path.Combine(service.Path, childName),
-                    Keywords = childKeywords,
-                    DatePatterns = new List<string>(service.DatePatterns ?? new List<string>()),
-                    ExpectedDayOffset = service.ExpectedDayOffset,
-                    CheckMode = service.CheckMode,
-                    FileTimeSource = service.FileTimeSource,
-                    MinFilesPerDay = service.MinFilesPerDay,
-                    FileMask = service.FileMask,
-                    Type = ServiceTypeModel.Single,
-                    Required = true
-                });
-            }
-
-            return children;
+            // Делегируем в Core, чтобы логика разрешения дочерних сервисов
+            // была единой для приложения и службы.
+            return BackupMonitor.Core.Services.BackupChecker.ResolveChildren(service);
         }
 
         private async void BtnCheckToday_Click(object sender, RoutedEventArgs e)
@@ -135,6 +103,11 @@ namespace BackupMonitor
                 UpdateViewModels(results);
 
                 StatusText.Text = "Check completed";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "Ошибка: " + ex.Message;
+                System.Diagnostics.Debug.WriteLine($"BtnCheckToday_Click error: {ex}");
             }
             finally
             {
@@ -179,6 +152,16 @@ namespace BackupMonitor
             if (result.MinRequiredCount > 0)
             {
                 parts.Add($"Files: {result.FoundCount}/{result.MinRequiredCount}");
+            }
+
+            if (result.TotalFoundSizeBytes > 0)
+            {
+                parts.Add($"Size: {BackupMonitor.Core.Services.BackupChecker.FormatFileSize(result.TotalFoundSizeBytes)}");
+            }
+
+            if (result.TooSmallCount > 0)
+            {
+                parts.Add($"Too small (<{BackupMonitor.Core.Services.BackupChecker.FormatFileSize(result.MinFoundFileSizeBytes)}): {result.TooSmallCount}");
             }
 
             if (result.LastObservedBackupDate.HasValue)
@@ -380,8 +363,14 @@ namespace BackupMonitor
 
             if (selectedNode.Service.Type == ServiceTypeModel.Group)
             {
-                MessageBox.Show("Editing groups via UI is not supported yet. Use services.json.", "Info",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                var bulkWindow = new BulkServiceWindow(selectedNode.Service);
+                if (bulkWindow.ShowDialog() == true)
+                {
+                    ApplyServiceUpdate(selectedNode.Service, bulkWindow.Service);
+                    _configManager.SaveConfigurationAndSync();
+                    LoadServices();
+                    StatusText.Text = "Группа обновлена";
+                }
                 return;
             }
 
@@ -406,7 +395,13 @@ namespace BackupMonitor
             target.CheckMode = updated.CheckMode;
             target.FileTimeSource = updated.FileTimeSource;
             target.MinFilesPerDay = updated.MinFilesPerDay;
+            target.MinFileSizeBytes = updated.MinFileSizeBytes;
             target.FileMask = updated.FileMask;
+            // Group-специфичные поля
+            target.Type = updated.Type;
+            target.ChildFolders = updated.ChildFolders;
+            target.UseChildFolderAsKeyword = updated.UseChildFolderAsKeyword;
+            target.Required = updated.Required;
         }
 
         private void BtnDeleteService_Click(object sender, RoutedEventArgs e)
@@ -467,7 +462,111 @@ namespace BackupMonitor
             return ServicesTreeView.SelectedItem as ServiceNodeViewModel;
         }
 
-private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
+        private void BtnToggleTheme_Click(object sender, RoutedEventArgs e)
+        {
+            var app = (App)Application.Current;
+            app.ToggleTheme();
+            ThemeIcon.Text = app.CurrentTheme == App.ThemeDark ? "🌙" : "☀";
+        }
+
+        private void BtnSaveReport_Click(object sender, RoutedEventArgs e)
+        {
+            var saveDialog = new SaveFileDialog
+            {
+                Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+                DefaultExt = ".txt",
+                FileName = $"BackupReport_{DateTime.Today:yyyy-MM-dd}.txt"
+            };
+
+            if (saveDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    var lines = new List<string>
+                    {
+                        $"Backup Monitor — Report {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                        "=".PadRight(60, '='),
+                        ""
+                    };
+
+                    foreach (var node in _services)
+                    {
+                        AppendNodeReport(lines, node, indent: 0);
+                    }
+
+                    lines.Add("");
+                    File.WriteAllLines(saveDialog.FileName, lines);
+                    StatusText.Text = $"Отчёт сохранён: {saveDialog.FileName}";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка сохранения отчёта:\n{ex.Message}", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private void AppendNodeReport(List<string> lines, ServiceNodeViewModel node, int indent)
+        {
+            var prefix = indent > 0 ? new string(' ', indent * 2) + "└ " : "";
+            var statusIcon = node.Status switch
+            {
+                "OK" => "✓",
+                "WARNING" => "⚠",
+                "FAIL" => "✗",
+                "ERROR" => "✗",
+                _ => "-"
+            };
+            lines.Add($"{prefix}{node.Name}  [{statusIcon} {node.Status}]");
+            if (!string.IsNullOrWhiteSpace(node.Path))
+                lines.Add($"{prefix}  Path: {node.Path}");
+            if (!string.IsNullOrWhiteSpace(node.Details))
+                lines.Add($"{prefix}  {node.Details}");
+            lines.Add("");
+
+            foreach (var child in node.Children)
+                AppendNodeReport(lines, child, indent + 1);
+        }
+
+        private async void MenuItemCheckSelected_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedNode = GetSelectedNode();
+            if (selectedNode == null) return;
+
+            var service = selectedNode.Service;
+            try
+            {
+                if (service.Type == ServiceTypeModel.Group)
+                {
+                    // Проверяем все дочерние сервисы группы
+                    StatusText.Text = $"Checking group '{service.Name}'...";
+                    var children = ResolveChildrenForUi(service);
+                    var tasks = children.Select(c => _backupChecker.CheckServiceAsync(c, DateTime.Today)).ToArray();
+                    var results = await Task.WhenAll(tasks);
+
+                    if (results.Length == selectedNode.Children.Count)
+                    {
+                        for (var i = 0; i < results.Length; i++)
+                            ApplyResultToNode(selectedNode.Children[i], results[i]);
+                    }
+                    StatusText.Text = $"Group '{service.Name}' checked";
+                }
+                else
+                {
+                    StatusText.Text = $"Checking '{service.Name}'...";
+                    var result = await _backupChecker.CheckServiceAsync(service, DateTime.Today);
+                    ApplyResultToNode(selectedNode, result);
+                    StatusText.Text = $"'{service.Name}' checked: {result.Status}";
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = "Ошибка: " + ex.Message;
+                System.Diagnostics.Debug.WriteLine($"MenuItemCheckSelected_Click error: {ex}");
+            }
+        }
+
+        private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
         {
             var settingsWindow = new TelegramSettingsWindow(_configManager.TelegramConfig);
             if (settingsWindow.ShowDialog() == true)
@@ -816,6 +915,7 @@ private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
             }
             finally
             {
+                BtnStartService.IsEnabled = true;
                 RefreshServiceStatus();
             }
         }
@@ -899,6 +999,7 @@ private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
             }
             finally
             {
+                BtnStopService.IsEnabled = true;
                 RefreshServiceStatus();
             }
         }
@@ -1011,11 +1112,40 @@ private void BtnTelegramSettings_Click(object sender, RoutedEventArgs e)
         }
 
         
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            // Сворачиваем в трей вместо закрытия
+            e.Cancel = true;
+            Hide();
+        }
+
         protected override void OnClosed(EventArgs e)
+        {
+            // CleanupResources() теперь вызывается из App.OnExit.
+            // OnClosed не вызывается при нормальном закрытии окна в режиме трея,
+            // но оставляем на случай принудительного закрытия через фреймворк.
+            base.OnClosed(e);
+        }
+
+        /// <summary>
+        /// Публичный метод для вызова проверки "сегодня" из трея.
+        /// Вызывается через Dispatcher.Invoke из TrayIconManager.
+        /// </summary>
+        public void RunCheckTodayFromTray()
+        {
+            if (!IsLoaded) return;
+            BtnCheckToday_Click(this, new RoutedEventArgs());
+        }
+
+        /// <summary>
+        /// Освобождает ресурсы (планировщик, отправчик Telegram).
+        /// Вызывается из App.OnExit, т.к. OnClosed не достигается
+        /// из-за e.Cancel=true в OnClosing (режим трея).
+        /// </summary>
+        public void CleanupResources()
         {
             _scheduler?.Stop();
             _telegramSender?.Dispose();
-            base.OnClosed(e);
         }
     }
 

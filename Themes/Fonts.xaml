@@ -1,0 +1,16 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- Font families -->
+    <FontFamily x:Key="FontFamilyDefault">Segoe UI</FontFamily>
+    <FontFamily x:Key="FontPath">Consolas</FontFamily>
+
+    <!-- Font sizes -->
+    <sys:Double x:Key="FontSizeSmall">12</sys:Double>
+    <sys:Double x:Key="FontSizeNormal">14</sys:Double>
+    <sys:Double x:Key="FontSizeMedium">16</sys:Double>
+    <sys:Double x:Key="FontSizeLarge">18</sys:Double>
+    <sys:Double x:Key="FontSizeHeader">22</sys:Double>
+
+</ResourceDictionary>

@@ -9,6 +9,8 @@ namespace BackupMonitor.Core.Models
         public string ChatId { get; set; } = string.Empty;
         public ReportMode ReportMode { get; set; } = ReportMode.FailOnly;
         public List<string> SendTimes { get; set; } = new List<string>();
+        public bool EnableCommands { get; set; } = false;
+        public List<string> AllowedChatIds { get; set; } = new List<string>();
     }
 
     public enum ReportMode

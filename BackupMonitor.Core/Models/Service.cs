@@ -16,6 +16,7 @@ namespace BackupMonitor.Core.Models
         [JsonConverter(typeof(StringEnumConverter))]
         public FileTimeSource FileTimeSource { get; set; } = FileTimeSource.LastWriteTime;
         public int MinFilesPerDay { get; set; } = 1;
+        public long MinFileSizeBytes { get; set; } = 0;
         public string? FileMask { get; set; }
         [JsonConverter(typeof(StringEnumConverter))]
         public ServiceType Type { get; set; } = ServiceType.Single;

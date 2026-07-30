@@ -15,14 +15,14 @@ namespace BackupMonitor.Tests
         public async Task NameDate_CheckCounts_MinFiles()
         {
             using var temp = new TempDirectory();
-            File.WriteAllText(Path.Combine(temp.Path, "db_backup_2026_01_21_1.bak"), "x");
-            File.WriteAllText(Path.Combine(temp.Path, "db_backup_2026_01_21_2.bak"), "x");
-            File.WriteAllText(Path.Combine(temp.Path, "db_backup_2026_01_20.bak"), "x");
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "db_backup_2026_01_21_1.bak"), "x");
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "db_backup_2026_01_21_2.bak"), "x");
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "db_backup_2026_01_20.bak"), "x");
 
             var service = new Service
             {
                 Name = "NameDate",
-                Path = temp.Path,
+                Path = temp.DirectoryPath,
                 CheckMode = ServiceCheckMode.NameDate,
                 DatePatterns = new List<string> { @"(\d{4}_\d{2}_\d{2})" },
                 MinFilesPerDay = 2
@@ -40,14 +40,14 @@ namespace BackupMonitor.Tests
         public async Task FileTime_UsesLastWriteTime()
         {
             using var temp = new TempDirectory();
-            var file = Path.Combine(temp.Path, "backup_1.bak");
+            var file = Path.Combine(temp.DirectoryPath, "backup_1.bak");
             File.WriteAllText(file, "x");
             File.SetLastWriteTime(file, new DateTime(2026, 1, 21, 10, 0, 0));
 
             var service = new Service
             {
                 Name = "FileTime",
-                Path = temp.Path,
+                Path = temp.DirectoryPath,
                 CheckMode = ServiceCheckMode.FileTime,
                 FileTimeSource = FileTimeSource.LastWriteTime,
                 MinFilesPerDay = 1
@@ -65,12 +65,12 @@ namespace BackupMonitor.Tests
         public async Task ExpectedDayOffset_ShiftsExpectedDate()
         {
             using var temp = new TempDirectory();
-            File.WriteAllText(Path.Combine(temp.Path, "backup_2026_01_21.bak"), "x");
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "backup_2026_01_21.bak"), "x");
 
             var service = new Service
             {
                 Name = "Offset",
-                Path = temp.Path,
+                Path = temp.DirectoryPath,
                 CheckMode = ServiceCheckMode.NameDate,
                 DatePatterns = new List<string> { @"(\d{4}_\d{2}_\d{2})" },
                 ExpectedDayOffset = 1
@@ -82,6 +82,57 @@ namespace BackupMonitor.Tests
 
             Assert.AreEqual(new DateTime(2026, 1, 21), result.ExpectedDate.Date);
             Assert.AreEqual(ServiceCheckStatus.OK, result.Status);
+        }
+
+        [TestMethod]
+        public async Task NameDate_DotFormat_ddMMyy_Detected()
+        {
+            // Формат 30.07.26 — самый частый в РФ (день.месяц.2-значный год)
+            using var temp = new TempDirectory();
+            var targetDate = new DateTime(2026, 7, 30);
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "backup_30.07.26.bak"), "data123456");
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "backup_29.07.26.bak"), "data123456");
+
+            var service = new Service
+            {
+                Name = "DotFormat",
+                Path = temp.DirectoryPath,
+                CheckMode = ServiceCheckMode.NameDate,
+                DatePatterns = new List<string>(), // полагаемся на стандартные паттерны
+                ExpectedDayOffset = 0,
+                MinFilesPerDay = 1
+            };
+
+            var checker = new BackupChecker();
+            var result = await checker.CheckServiceAsync(service, targetDate);
+
+            Assert.AreEqual(ServiceCheckStatus.OK, result.Status,
+                $"Ожидался OK для 30.07.26. Status={result.Status}, Message={result.Message}");
+        }
+
+        [TestMethod]
+        public async Task NameDate_DotFormat_ddMMyyyy_Detected()
+        {
+            // Формат 30.07.2026 — день.месяц.4-значный год
+            using var temp = new TempDirectory();
+            var targetDate = new DateTime(2026, 7, 30);
+            File.WriteAllText(Path.Combine(temp.DirectoryPath, "db_30.07.2026.sql"), "data123456");
+
+            var service = new Service
+            {
+                Name = "DotFullFormat",
+                Path = temp.DirectoryPath,
+                CheckMode = ServiceCheckMode.NameDate,
+                DatePatterns = new List<string>(),
+                ExpectedDayOffset = 0,
+                MinFilesPerDay = 1
+            };
+
+            var checker = new BackupChecker();
+            var result = await checker.CheckServiceAsync(service, targetDate);
+
+            Assert.AreEqual(ServiceCheckStatus.OK, result.Status,
+                $"Ожидался OK для 30.07.2026. Status={result.Status}, Message={result.Message}");
         }
 
         [TestMethod]
@@ -174,15 +225,15 @@ namespace BackupMonitor.Tests
         {
             public TempDirectory()
             {
-                Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(Path);
+                DirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(DirectoryPath);
             }
 
-            public string Path { get; }
+            public string DirectoryPath { get; }
 
             public string CreateSubdirectory(string name)
             {
-                var dir = System.IO.Path.Combine(Path, name);
+                var dir = Path.Combine(DirectoryPath, name);
                 Directory.CreateDirectory(dir);
                 return dir;
             }
@@ -191,9 +242,9 @@ namespace BackupMonitor.Tests
             {
                 try
                 {
-                    if (Directory.Exists(Path))
+                    if (Directory.Exists(DirectoryPath))
                     {
-                        Directory.Delete(Path, true);
+                        Directory.Delete(DirectoryPath, true);
                     }
                 }
                 catch

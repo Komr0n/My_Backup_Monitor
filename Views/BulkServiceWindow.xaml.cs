@@ -22,12 +22,44 @@ namespace BackupMonitor.Views
             LoadDefaults();
         }
 
+        /// <summary>
+        /// Конструктор редактирования существующей группы: поля предзаполняются
+        /// значениями группы. Значения по умолчанию НЕ применяются — только реальные.
+        /// </summary>
+        public BulkServiceWindow(Service existingGroup)
+        {
+            if (existingGroup == null) throw new ArgumentNullException(nameof(existingGroup));
+            InitializeComponent();
+            Service = existingGroup;
+            Title = "Редактировать группу сервисов";
+            LoadExistingGroup(existingGroup);
+        }
+
+        private void LoadExistingGroup(Service s)
+        {
+            TxtGroupName.Text = s.Name;
+            TxtBasePath.Text = s.Path;
+            TxtChildFolders.Text = string.Join(Environment.NewLine, s.ChildFolders ?? new List<string>());
+            TxtKeywords.Text = string.Join(", ", s.Keywords ?? new List<string>());
+            ChkUseChildFolderAsKeyword.IsChecked = s.UseChildFolderAsKeyword;
+            TxtFileMask.Text = s.FileMask ?? string.Empty;
+            TxtDatePatterns.Text = string.Join(Environment.NewLine, s.DatePatterns ?? new List<string>());
+            TxtExpectedDayOffset.Text = s.ExpectedDayOffset.ToString();
+            TxtMinFilesPerDay.Text = s.MinFilesPerDay.ToString();
+            TxtMinFileSizeBytes.Text = s.MinFileSizeBytes.ToString();
+
+            SelectComboItemByTag(CmbCheckMode, s.CheckMode.ToString());
+            SelectComboItemByTag(CmbFileTimeSource, s.FileTimeSource.ToString());
+            UpdatePanels();
+        }
+
         private void LoadDefaults()
         {
             SelectComboItemByTag(CmbCheckMode, ServiceCheckMode.NameDate.ToString());
             SelectComboItemByTag(CmbFileTimeSource, FileTimeSource.LastWriteTime.ToString());
             TxtExpectedDayOffset.Text = "0";
             TxtMinFilesPerDay.Text = "1";
+            TxtMinFileSizeBytes.Text = "0";
             UpdatePanels();
         }
 
@@ -157,6 +189,13 @@ namespace BackupMonitor.Views
                 return;
             }
 
+            if (!long.TryParse(TxtMinFileSizeBytes.Text.Trim(), out var minSizeBytes) || minSizeBytes < 0)
+            {
+                MessageBox.Show("Минимальный размер файла должен быть числом >= 0 (0 = не проверять)", "Ошибка",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             var checkModeTag = GetSelectedTag(CmbCheckMode);
             if (!Enum.TryParse<ServiceCheckMode>(checkModeTag, out var checkMode))
             {
@@ -195,6 +234,7 @@ namespace BackupMonitor.Views
                 CheckMode = checkMode,
                 FileTimeSource = fileTimeSource,
                 MinFilesPerDay = minFiles,
+                MinFileSizeBytes = minSizeBytes,
                 FileMask = string.IsNullOrWhiteSpace(TxtFileMask.Text) ? null : TxtFileMask.Text.Trim(),
                 Type = ServiceType.Group,
                 ChildFolders = folders,

@@ -92,6 +92,51 @@ namespace BackupMonitor.Services
             }
         }
 
+        /// <summary>
+        /// Результат попытки синхронизации конфигурации в ProgramData.
+        /// </summary>
+        public enum SyncResult
+        {
+            /// <summary>Служба не установлена — синхронизация не требуется.</summary>
+            NotInstalled,
+            /// <summary>Конфигурация успешно скопирована.</summary>
+            Synced,
+            /// <summary>Копирование завершилось с ошибкой.</summary>
+            Failed
+        }
+
+        /// <summary>
+        /// Синхронизирует конфигурацию (services.json + appconfig.json) из guiConfigDir
+        /// в директорию ProgramData службы. Не показывает UI — чистая операция копирования.
+        /// Безопасна для вызова из повышенного (elevated) процесса.
+        /// </summary>
+        public static SyncResult SyncConfigNow(string guiConfigDir, IProgress<string>? progress = null)
+        {
+            try
+            {
+                // Если служба не установлена — синхронизация не имеет смысла
+                try
+                {
+                    var sc = new System.ServiceProcess.ServiceController(_serviceName);
+                    sc.Dispose(); // просто проверяем, что контроллер создался
+                }
+                catch
+                {
+                    // Служба не найдена — выходим без ошибки
+                    progress?.Report("Служба не установлена — синхронизация пропущена");
+                    return SyncResult.NotInstalled;
+                }
+
+                var copied = CopyConfigFilesToConfigDir(guiConfigDir, progress);
+                return copied ? SyncResult.Synced : SyncResult.Failed;
+            }
+            catch (Exception ex)
+            {
+                progress?.Report($"Ошибка синхронизации: {ex.Message}");
+                return SyncResult.Failed;
+            }
+        }
+
         public static async Task<bool> BuildServiceProjectAsync(IProgress<string>? progress = null)
         {
             try
