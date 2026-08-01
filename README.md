@@ -99,7 +99,7 @@ WPF-приложение (.NET 8) + Windows Service + Core-библиотека 
 {
   "Name": "Conveer",
   "Type": "Group",
-  "Path": "\\\\192.168.10.19\\ABS-Backup\\Conveer\\Backup",
+  "Path": "\\\\192.168.0.1\\ABS-Backup\\Backup",
   "ChildFolders": ["auth_db", "business_process_db", "client_db"],
   "CheckMode": "NameDate",
   "DatePatterns": ["(\\d{4}_\\d{2}_\\d{2})"],
