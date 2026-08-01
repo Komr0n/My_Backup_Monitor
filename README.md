@@ -1,88 +1,63 @@
 # Backup Monitor
 
-Backup Monitor is a WPF (.NET 8) app plus a Windows Service and a Core library for monitoring backups in UNC/network folders. It supports multiple check modes, daily offsets, grouped services with child checks, and Telegram reporting.
+WPF-приложение (.NET 8) + Windows Service + Core-библиотека для мониторинга бэкапов в сетевых (UNC) папках. Проверяет бэкапы по расписанию, отправляет отчёты в Telegram и принимает команды от бота.
+
+## Требования
+
+- Windows 10/11
+- .NET 8 SDK (для сборки)
+- Visual Studio 2022+ (опционально)
+
+## Структура проекта
+
+| Проект | Назначение |
+|---|---|
+| `BackupMonitor/` | WPF GUI — настройка сервисов, проверка вручную, управление службой |
+| `BackupMonitor.Core/` | Core-логика: модели, проверки, форматирование отчётов, Telegram-бот, логирование |
+| `BackupMonitorService/` | Windows Service — фоновая проверка по расписанию + рассылка отчётов + бот |
+| `BackupMonitor.Tests/` | Unit-тесты (MSTest) |
+
+**Файлы конфигурации** (в папке приложения):
+- `services.json` — список сервисов для мониторинга
+- `appconfig.json` — настройки Telegram (bot token, chat id, расписание, режим отчёта)
 
 ---
 
-# Backup Monitor (RU)
+## Возможности
 
-Backup Monitor — это WPF-приложение (.NET 8) + Windows Service + Core-библиотека для мониторинга бэкапов в сетевых (UNC) папках. Поддерживаются разные режимы проверки, смещение по дням, групповые сервисы с дочерними проверками и отчеты в Telegram.
+- **Режимы проверки**: по имени файла (regex) или по timestamp (`LastWriteTime` / `CreationTime`)
+- **Смещение даты**: сегодня / вчера (ExpectedDayOffset)
+- **Минимум файлов за день**, маска файлов (`*.bak`, `*.zip`)
+- **Минимальный размер файла** (`MinFileSizeBytes`): файлы меньше порога помечаются как ERROR (подозрение на пустой/битый бэкап). `0` = проверка отключена
+- **Групповые сервисы** с дочерними проверками и агрегированным статусом:
+  - FAIL — упал хотя бы один Required
+  - WARNING — упали только Optional
+  - OK — все Required OK
+  - ERROR — ошибка доступа / чтения
+- **Telegram-отчёты** по расписанию с HTML-форматированием
+- **Telegram-бот** — запрос отчётов по команде (`/report`, `/check`, `/services`)
+- **Управление Windows-службой** из GUI (установка, запуск, остановка)
+- **Tray-иконка** с быстрым доступом и фоновым мониторингом
 
-## Requirements
+---
 
-- Windows 10/11
-- .NET 8 SDK
-- Visual Studio 2022+
-
-## Project structure
-
-- `BackupMonitor/` - WPF GUI
-- `BackupMonitor.Core/` - Core logic, models, checks, report formatting
-- `BackupMonitorService/` - Windows Service
-- `BackupMonitor.Tests/` - Unit tests (MSTest)
-- `services.json` - service configuration (in app directory)
-- `appconfig.json` - Telegram settings (in app directory, created by GUI)
-
-## Структура проекта (RU)
-
-- `BackupMonitor/` — WPF GUI
-- `BackupMonitor.Core/` — Core-логика, модели, проверки, форматирование отчетов
-- `BackupMonitorService/` — Windows Service
-- `BackupMonitor.Tests/` — Unit-тесты (MSTest)
-- `services.json` — конфигурация сервисов (в папке приложения)
-- `appconfig.json` — настройки Telegram (в папке приложения, создаются GUI)
-
-## Features
-
-- Check backups by file name (regex) or by file timestamp.
-- Expected day offset (today or yesterday).
-- Minimum required files per day.
-- Optional file mask filter (`*.bak`, `*.zip`).
-- Group services with child results and aggregated status:
-  - FAIL if any required child fails
-  - WARNING if only optional children fail
-  - OK if all required children are OK
-  - ERROR on access/read errors
-- Telegram report with summary and per-service status lines.
-- Tree view in UI with groups and children.
-
-## Возможности (RU)
-
-- Проверка бэкапов по имени файла (regex) или по времени файла.
-- Смещение ожидаемой даты (сегодня/вчера).
-- Минимум файлов за день.
-- Маска файлов (`*.bak`, `*.zip`).
-- Групповые сервисы с дочерними результатами и агрегированным статусом:
-  - FAIL если упал хотя бы один Required
-  - WARNING если упали только Optional
-  - OK если все Required OK
-  - ERROR при ошибках доступа/чтения
-- Telegram-отчет со сводкой и построчными статусами.
-- Дерево сервисов в UI (группы + дети).
-
-## Check modes
+## Режимы проверки
 
 ### NameDate
-Extracts date from the file name using regex patterns.
+Извлекает дату из имени файла по regex-паттернам из поля `DatePatterns`.
 
 ### FileTime
-Uses file `LastWriteTime` or `CreationTime`.
+Берёт дату из `LastWriteTime` или `CreationTime` (настраивается через `FileTimeSource`).
 
-## Режимы проверки (RU)
+---
 
-### NameDate
-Извлекает дату из имени файла по regex.
+## Конфигурация `services.json`
 
-### FileTime
-Берет дату из `LastWriteTime` или `CreationTime`.
-
-## Configuration schema (services.json)
-
-All fields are optional for backward compatibility unless noted.
+Все поля необязательны для обратной совместимости.
 
 ```json
 {
-  "Name": "Service name",
+  "Name": "Имя сервиса",
   "Path": "\\\\server\\share\\backups",
   "Keywords": ["backup", "full"],
   "DatePatterns": ["(\\d{4}_\\d{2}_\\d{2})"],
@@ -90,6 +65,7 @@ All fields are optional for backward compatibility unless noted.
   "CheckMode": "NameDate",
   "FileTimeSource": "LastWriteTime",
   "MinFilesPerDay": 1,
+  "MinFileSizeBytes": 0,
   "FileMask": "*.bak",
   "Type": "Single",
   "Children": [],
@@ -99,46 +75,32 @@ All fields are optional for backward compatibility unless noted.
 }
 ```
 
-### Notes
+| Поле | Описание |
+|---|---|
+| `Name` | Имя сервиса |
+| `Path` | UNC-путь к папке с бэкапами |
+| `Keywords` | Ключевые слова для фильтрации файлов |
+| `DatePatterns` | Regex-паттерны для извлечения даты из имени файла |
+| `ExpectedDayOffset` | `0` = сегодня, `1` = вчера |
+| `CheckMode` | `NameDate` или `FileTime` |
+| `FileTimeSource` | `LastWriteTime` или `CreationTime` |
+| `MinFilesPerDay` | Минимум файлов за день для статуса OK |
+| `MinFileSizeBytes` | Минимальный размер файла (байты). `0` = не проверять |
+| `FileMask` | Маска файла (например `*.bak`) |
+| `Type` | `Single` или `Group` |
+| `Children` | Явные дочерние сервисы (расширенный вариант) |
+| `ChildFolders` | Список подпапок для автогенерации дочерних сервисов |
+| `UseChildFolderAsKeyword` | Если `true` и `Keywords` пустые, имя подпапки используется как keyword |
+| `Required` | `true` = Required (FAIL блокирует группу), `false` = Optional (только WARNING) |
 
-- `ExpectedDayOffset`: 0 = today, 1 = yesterday.
-- `CheckMode`: `NameDate` or `FileTime`.
-- `FileTimeSource`: `LastWriteTime` or `CreationTime`.
-- `MinFilesPerDay`: OK if found files >= this value.
-- `Type`: `Single` or `Group`.
-- `Children`: explicit child services (advanced).
-- `ChildFolders`: list of subfolders for bulk group setup.
-- `UseChildFolderAsKeyword`: if `Keywords` empty, child name is used as keyword.
-
-### Примечания (RU)
-
-- `ExpectedDayOffset`: 0 = сегодня, 1 = вчера.
-- `CheckMode`: `NameDate` или `FileTime`.
-- `FileTimeSource`: `LastWriteTime` или `CreationTime`.
-- `MinFilesPerDay`: OK если найдено файлов >= значения.
-- `Type`: `Single` или `Group`.
-- `Children`: явные дочерние сервисы (расширенный вариант).
-- `ChildFolders`: список подпапок для групп.
-- `UseChildFolderAsKeyword`: если `Keywords` пустые, имя подпапки используется как keyword.
-
-## Group service (composite)
-
-Use `Type = Group` and provide either:
-- `Children` (explicit child services), or
-- `ChildFolders` (list of subfolders under `Path`).
-
-Example with ChildFolders:
+### Пример группы с подпапками
 
 ```json
 {
   "Name": "Conveer",
   "Type": "Group",
   "Path": "\\\\192.168.10.19\\ABS-Backup\\Conveer\\Backup",
-  "ChildFolders": [
-    "auth_db",
-    "business_process_db",
-    "client_db"
-  ],
+  "ChildFolders": ["auth_db", "business_process_db", "client_db"],
   "CheckMode": "NameDate",
   "DatePatterns": ["(\\d{4}_\\d{2}_\\d{2})"],
   "ExpectedDayOffset": 0,
@@ -147,102 +109,112 @@ Example with ChildFolders:
 }
 ```
 
-## Групповой сервис (RU)
+---
 
-Используй `Type = Group` и задай либо:
-- `Children` (явные дочерние сервисы), либо
-- `ChildFolders` (список подпапок внутри `Path`).
+## Telegram-бот: команды
 
-## GUI usage
+Бот запускается в составе Windows Service. Доступ по белому списку `AllowedChatIds` в `appconfig.json`.
 
-### Add a single service
-1. Click **Add service**
-2. Fill name, path, mode, patterns/time source, offsets, min files
-3. Save
+| Команда | Описание |
+|---|---|
+| `/start`, `/help` | Список доступных команд |
+| `/report` | Краткий отчёт за сегодня |
+| `/report today` | Подробный отчёт за сегодня |
+| `/report ok` | Только успешные бэкапы |
+| `/report fail` | Только неуспешные (FAIL + ERROR) |
+| `/report month` | Сводка за месяц (OK/FAIL по дням) |
+| `/report period YYYY-MM-DD YYYY-MM-DD` | Произвольный период |
+| `/services` | Список настроенных сервисов |
+| `/check <имя>` | Проверить конкретный сервис сейчас |
 
-### Add a group with many subfolders
-1. Click **Add group**
-2. Set group name and base path
-3. Click **Load subfolders from path** or paste list
-4. Set check mode and other options
-5. Save
+Длинные сообщения автоматически разбиваются на чанки ≤ 4000 символов.
 
-The group will appear in the tree, with children listed under it.
+---
 
-## Использование GUI (RU)
+## Telegram-отчёт (по расписанию)
+
+Служба отправляет отчёт автоматически в заданное время (настраивается в GUI). Формат:
+
+- Заголовок с датой и временем
+- Сводка: `✅ OK: N | ⚠️ WARNING: N | ❌ FAIL: N | 🔥 ERROR: N`
+- По каждому сервису: статус с эмодзи и описание ошибки (если есть)
+- Группы отображаются заголовком `📁 Группа «name»`, дочерние сервисы — в цитате (`<blockquote>`)
+- Статусы: ✅ OK, ⚠️ WARNING, ❌ FAIL, 🔥 ERROR
+
+---
+
+## Управление Windows-службой
+
+### Из GUI
+
+1. Запустить приложение **от имени администратора**
+2. Кнопки в панели управления службой: **Установить**, **Запустить**, **Остановить**, **Обновить статус**
+
+### Из командной строки
+
+```cmd
+:: От имени администратора
+sc create BackupMonitorService binPath= "C:\path\to\BackupMonitorService.exe" start= auto
+sc start BackupMonitorService
+sc stop BackupMonitorService
+sc query BackupMonitorService
+sc delete BackupMonitorService
+```
+
+### Самостоятельная публикация (для серверов без .NET SDK)
+
+```cmd
+dotnet publish BackupMonitorService -c Release -r win-x64 --self-contained -o publish
+```
+
+Готовые файлы из `publish/` копируются на сервер — .NET SDK на сервере не нужен.
+
+---
+
+## Логирование
+
+Логи пишутся в `service.log` в папке приложения (общий для worker и бота через `FileLogger`).
+
+- Автоматическая ротация при достижении 5 МБ
+- Бот помечает свои записи префиксом `[BOT]`
+- При ошибках Telegram-бота используется экспоненциальный backoff: 2с → 4с → 8с → 16с → 32с → 60с макс.
+
+---
+
+## GUI
 
 ### Добавить одиночный сервис
-1. Нажми **Добавить сервис**
-2. Укажи имя, путь, режим, regex/источник времени, смещения и минимум файлов
-3. Сохрани
+1. Нажать **Добавить сервис**
+2. Указать имя, путь, режим проверки, regex/источник времени, смещения и минимум файлов
+3. Сохранить
 
-### Добавить группу с подпапками
-1. Нажми **Добавить группу**
-2. Укажи имя группы и базовый путь
-3. Нажми **Загрузить подпапки из пути** или вставь список
-4. Выбери режим проверки и параметры
-5. Сохрани
+### Добавить/редактировать группу с подпапками
+1. Нажать **Добавить группу** (или **Редактировать** для существующей)
+2. Указать имя группы и базовый путь
+3. Нажать **Загрузить подпапки из пути** или вставить список вручную
+4. Выбрать режим проверки и параметры
+5. Сохранить
 
-Группа появится в дереве, дети будут вложены.
+Группа появляется в дереве, дочерние сервисы вложены под ней. Редактирование доступно через контекстное меню или двойной клик.
 
-## Telegram report
+---
 
-Report includes:
-- Header with date/time
-- Summary counts (OK/WARNING/FAIL/ERROR)
-- Per-service lines with emoji:
-  - ✅ OK
-  - ⚠️ WARNING
-  - ❌ FAIL
-  - 🔥 ERROR
-- Child services printed as a quoted block inside their group
-
-## Telegram-отчет (RU)
-
-Содержит:
-- Заголовок с датой/временем
-- Сводку OK/WARNING/FAIL/ERROR
-- По каждой строке сервиса:
-  - ✅ OK
-  - ⚠️ WARNING
-  - ❌ FAIL
-  - 🔥 ERROR
-- Дочерние сервисы выводятся цитатой внутри группы
-
-## Build and run
+## Сборка и запуск
 
 ```bash
 dotnet build
-```
-
-Run GUI from Visual Studio or `BackupMonitor` project.
-
-## Сборка и запуск (RU)
-
-```bash
-dotnet build
-```
-
-GUI запускается из Visual Studio или проекта `BackupMonitor`.
-
-## Tests
-
-```bash
 dotnet test
 ```
 
-## Тесты (RU)
+GUI запускается из Visual Studio или проекта `BackupMonitor`. Служба — через `BackupMonitorService.exe` или `sc start`.
 
-```bash
-dotnet test
-```
+---
 
-## Notes
+## Жизненный цикл проекта
 
-- The app and service are Windows-only.
-- The service uses the same `services.json` and `appconfig.json` configuration as the GUI.
-
-## Примечания (RU)
-
-- Приложение и служба — только для Windows.
-- Служба использует те же `services.json` и `appconfig.json`, что и GUI.
+- Приложение и служба — только для Windows
+- GUI и служба используют одни и те же `services.json` и `appconfig.json`
+- Служба перезагружает конфигурацию перед каждой проверкой — изменения из GUI подхватываются автоматически
+- Отчёты формируются за **предыдущий день** (настраивается)
+- Защита от повторной отправки: отслеживание через `.sentstate.json`
+- Heartbeat: `.heartbeat` файл обновляется каждый цикл для мониторинга жизнеспособности службы

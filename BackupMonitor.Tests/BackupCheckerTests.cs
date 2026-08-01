@@ -221,6 +221,83 @@ namespace BackupMonitor.Tests
             Assert.AreEqual(ServiceCheckStatus.WARNING, result.Status);
         }
 
+        /// <summary>
+        /// Период-проверка группы: раньше возвращала "не поддерживается".
+        /// Теперь агрегирует результаты детей — если все OK, группа валидна.
+        /// </summary>
+        [TestMethod]
+        public void Period_Group_WithOkChildren_IsValid()
+        {
+            using var temp = new TempDirectory();
+            var childA = temp.CreateSubdirectory("childA");
+            var childB = temp.CreateSubdirectory("childB");
+
+            // Имена файлов должны содержать keyword (имя подпапки, т.к. UseChildFolderAsKeyword=true),
+            // иначе GetCandidateFiles отфильтрует их и ребёнок будет FAIL.
+            var fileA = Path.Combine(childA, "childA_backup_2026_07_29.bak");
+            File.WriteAllText(fileA, "data");
+            var fileB = Path.Combine(childB, "childB_backup_2026_07_29.bak");
+            File.WriteAllText(fileB, "data");
+
+            var group = new Service
+            {
+                Name = "PeriodGroup",
+                Type = ServiceType.Group,
+                CheckMode = ServiceCheckMode.NameDate,
+                DatePatterns = new List<string> { @"(\d{4}_\d{2}_\d{2})" },
+                MinFilesPerDay = 1,
+                ChildFolders = new List<string> { "childA", "childB" },
+                UseChildFolderAsKeyword = true
+            };
+
+            // Группе нужен Path, чтобы ResolveChildren мог сделать Path.Combine(Path, folder)
+            group.Path = temp.DirectoryPath;
+
+            var checker = new BackupChecker();
+            var result = checker.CheckBackupForPeriod(group, new DateTime(2026, 7, 29), new DateTime(2026, 7, 29));
+
+            Assert.IsTrue(string.IsNullOrEmpty(result.ErrorMessage),
+                $"Не ожидается ошибка: {result.ErrorMessage}");
+            Assert.IsTrue(result.IsValid, "Группа с двумя OK-детьми должна быть валидна");
+            Assert.AreEqual(2, result.ChildResults.Count, "Должно быть 2 дочерних результата");
+            Assert.IsTrue(result.ChildResults["childA"].IsValid);
+            Assert.IsTrue(result.ChildResults["childB"].IsValid);
+        }
+
+        /// <summary>
+        /// Период-проверка группы: если один ребёнок FAIL, вся группа невалидна.
+        /// </summary>
+        [TestMethod]
+        public void Period_Group_WithFailingChild_IsInvalid()
+        {
+            using var temp = new TempDirectory();
+            var childA = temp.CreateSubdirectory("childA");
+            var childB = temp.CreateSubdirectory("childB"); // пустая папка → FAIL
+
+            var fileA = Path.Combine(childA, "childA_backup_2026_07_29.bak");
+            File.WriteAllText(fileA, "data");
+
+            var group = new Service
+            {
+                Name = "PeriodGroupFail",
+                Type = ServiceType.Group,
+                Path = temp.DirectoryPath,
+                CheckMode = ServiceCheckMode.NameDate,
+                DatePatterns = new List<string> { @"(\d{4}_\d{2}_\d{2})" },
+                MinFilesPerDay = 1,
+                ChildFolders = new List<string> { "childA", "childB" },
+                UseChildFolderAsKeyword = true
+            };
+
+            var checker = new BackupChecker();
+            var result = checker.CheckBackupForPeriod(group, new DateTime(2026, 7, 29), new DateTime(2026, 7, 29));
+
+            Assert.IsFalse(result.IsValid, "Группа с одним FAIL-ребёнком должна быть невалидна");
+            Assert.IsTrue(result.ChildResults["childA"].IsValid);
+            Assert.IsFalse(result.ChildResults["childB"].IsValid);
+            Assert.IsTrue(result.MissingDates.Count >= 1, "Должны быть пропущенные даты");
+        }
+
         private sealed class TempDirectory : IDisposable
         {
             public TempDirectory()

@@ -114,16 +114,16 @@ namespace BackupMonitor.Core.Services
                     {
                         _telegramConfig = appConfig.Telegram;
 
-                        // Исправляем Chat ID при загрузке, если нужно
+                        // Исправляем Chat ID при загрузке, если нужно (только в памяти,
+                        // без записи на диск — LoadTelegramConfig вызывается каждые 2-10 сек
+                        // ботом/worker, а запись при каждой загрузке будет перезаписывать
+                        // конфиг и мешать параллельным изменениям GUI).
                         if (!string.IsNullOrEmpty(_telegramConfig.ChatId))
                         {
                             var chatId = _telegramConfig.ChatId.Trim();
-                            // Если это похоже на ID группы без минуса - добавляем
                             if (chatId.StartsWith("100") && chatId.Length > 10 && !chatId.StartsWith("-"))
                             {
                                 _telegramConfig.ChatId = "-" + chatId;
-                                // Сохраняем исправленную конфигурацию
-                                SaveTelegramConfig();
                             }
                         }
                     }
@@ -147,7 +147,7 @@ namespace BackupMonitor.Core.Services
             {
                 var configPath = Path.Combine(_configDirectory, ConfigFileName);
                 var json = JsonConvert.SerializeObject(_services, Formatting.Indented);
-                File.WriteAllText(configPath, json);
+                WriteAllTextAtomic(configPath, json);
             }
             catch (Exception ex)
             {
@@ -167,12 +167,42 @@ namespace BackupMonitor.Core.Services
                     Telegram = _telegramConfig
                 };
                 var json = JsonConvert.SerializeObject(appConfig, Formatting.Indented);
-                File.WriteAllText(appConfigPath, json);
+                WriteAllTextAtomic(appConfigPath, json);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Ошибка сохранения конфигурации Telegram: {ex.Message}");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Атомарная запись текста в файл: пишем во временный файл, затем
+        /// File.Move с заменой. Защищает от частичной записи, если процесс
+        /// прерван посередине (или GUI пишет, а служба параллельно читает).
+        /// </summary>
+        private static void WriteAllTextAtomic(string path, string content)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            // Временный файл в той же папке (для File.Move по тому же тому)
+            var tempPath = path + ".tmp";
+            File.WriteAllText(tempPath, content, System.Text.Encoding.UTF8);
+
+            // File.Move с overwrite=true атомарен на NTFS для замены внутри одного тома.
+            // Если целевой файл открыт службой на чтение — будет IOException; вызывающая
+            // сторона поймает и повторит попытку позже.
+            if (File.Exists(path))
+            {
+                File.Replace(tempPath, path, destinationBackupFileName: null);
+            }
+            else
+            {
+                File.Move(tempPath, path);
             }
         }
 

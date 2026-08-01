@@ -32,8 +32,14 @@ namespace BackupMonitor.Core.Services
 
         // Смещение для getUpdates (long polling): указываем id последнего обработанного обновления + 1
         private long _offset = 0;
-        private bool _running = false;
+        // volatile: пишется из Stop() (поток worker), читается в цикле опроса (поток бота)
+        private volatile bool _running = false;
         private CancellationToken _cancellationToken;
+
+        // Счётчик последовательных ошибок для экспоненциального backoff.
+        // Сбрасывается при успешном опросе, растёт при ошибках.
+        // Пауза: 2s → 4s → 8s → 16s → 32s → 60s (максимум).
+        private int _consecutiveErrors = 0;
 
         /// <summary>
         /// Создаёт экземпляр бота команд.
@@ -120,6 +126,7 @@ namespace BackupMonitor.Core.Services
                     }
 
                     // Команды активны — опрашиваем обновления
+                    var hadError = false;
                     try
                     {
                         await PollOnceAsync();
@@ -131,10 +138,32 @@ namespace BackupMonitor.Core.Services
                     catch (Exception ex)
                     {
                         Log($"Ошибка при опросе Telegram: {ex.Message}");
+                        hadError = true;
+                    }
+
+                    // Экспоненциальный backoff при последовательных ошибках:
+                    // 2s -> 4s -> 8s -> 16s -> 32s -> 60s (максимум).
+                    // При успешном опросе — сброс на стандартные 2s.
+                    if (hadError)
+                    {
+                        _consecutiveErrors++;
+                    }
+                    else
+                    {
+                        _consecutiveErrors = 0;
+                    }
+
+                    var delay = _consecutiveErrors > 0
+                        ? Math.Min(60000, 2000 * (1 << Math.Min(_consecutiveErrors, 5)))
+                        : 2000;
+
+                    if (_consecutiveErrors > 1)
+                    {
+                        Log($"Backoff: {_consecutiveErrors} ошибок подряд, пауза {delay} мс");
                     }
 
                     // Пауза между опросами, прерываемая отменой
-                    await WaitSafe(2000, cancellationToken);
+                    await WaitSafe(delay, cancellationToken);
                 }
             }
             finally
@@ -512,20 +541,17 @@ namespace BackupMonitor.Core.Services
         }
 
         /// <summary>
-        /// Формирует и отправляет сводку по периоду. Проверяются только одиночные
-        /// сервисы (ServiceType.Single); групповые сервисы пропускаются, так как
-        /// CheckBackupForPeriod для них возвращает ошибку.
+        /// Формирует и отправляет сводку по периоду. Поддерживаются как одиночные,
+        /// так и групповые сервисы — для групп CheckBackupForPeriod делает fan-out
+        /// по дочерним сервисам и агрегирует результат.
         /// </summary>
         private async Task GenerateAndSendPeriodAsync(long chatId, DateTime start, DateTime end)
         {
             var services = _configManager.Services ?? new List<Service>();
 
-            // Период проверяется только для одиночных сервисов
-            var singles = services.Where(s => s.Type == ServiceType.Single).ToList();
-
             var rows = new List<(string Name, bool Valid, int Missing, string Error)>();
 
-            foreach (var service in singles)
+            foreach (var service in services)
             {
                 try
                 {
@@ -539,7 +565,7 @@ namespace BackupMonitor.Core.Services
                 }
             }
 
-            var totalServices = singles.Count;
+            var totalServices = rows.Count;
             var validCount = rows.Count(r => r.Valid);
             var withMissingCount = rows.Count(r => !r.Valid && r.Missing > 0);
 
@@ -577,7 +603,7 @@ namespace BackupMonitor.Core.Services
 
         /// <summary>
         /// Отправляет HTML-сообщение в чат. Сообщения длиннее 4000 символов
-        /// разбиваются по строкам на части.
+        /// разбиваются по строкам на части (общий helper TelegramMessageFormatter).
         /// </summary>
         private async Task SendHtmlMessageAsync(long chatId, string text)
         {
@@ -588,7 +614,7 @@ namespace BackupMonitor.Core.Services
             }
 
             var url = string.Format(_apiBase, token, "sendMessage");
-            var chunks = SplitIntoChunks(text, 4000);
+            var chunks = TelegramMessageFormatter.SplitIntoChunks(text);
 
             foreach (var chunk in chunks)
             {
@@ -617,60 +643,6 @@ namespace BackupMonitor.Core.Services
                     Log($"Не удалось отправить сообщение (HTTP {(int)response.StatusCode}): {body}");
                 }
             }
-        }
-
-        /// <summary>
-        /// Разбивает текст на части не длиннее <paramref name="maxChars"/>,
-        /// стараясь не разрывать отдельные строки.
-        /// </summary>
-        private static List<string> SplitIntoChunks(string text, int maxChars)
-        {
-            var chunks = new List<string>();
-            if (string.IsNullOrEmpty(text))
-            {
-                return chunks;
-            }
-
-            var current = new StringBuilder();
-
-            foreach (var line in text.Split('\n'))
-            {
-                // Если добавление строки переполнит текущий кусок — сбрасываем его
-                if (current.Length > 0 && current.Length + line.Length + Environment.NewLine.Length > maxChars)
-                {
-                    chunks.Add(current.ToString());
-                    current.Clear();
-                }
-
-                if (line.Length > maxChars)
-                {
-                    // Жёсткий разрез для строк длиннее лимита
-                    if (current.Length > 0)
-                    {
-                        chunks.Add(current.ToString());
-                        current.Clear();
-                    }
-
-                    var remaining = line;
-                    while (remaining.Length > maxChars)
-                    {
-                        chunks.Add(remaining.Substring(0, maxChars));
-                        remaining = remaining.Substring(maxChars);
-                    }
-                    current.Append(remaining);
-                }
-                else
-                {
-                    current.AppendLine(line);
-                }
-            }
-
-            if (current.Length > 0)
-            {
-                chunks.Add(current.ToString());
-            }
-
-            return chunks;
         }
 
         /// <summary>

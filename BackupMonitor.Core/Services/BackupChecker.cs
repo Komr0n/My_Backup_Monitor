@@ -15,6 +15,12 @@ namespace BackupMonitor.Core.Services
             public bool IsValid { get; set; }
             public List<DateTime> MissingDates { get; set; } = new List<DateTime>();
             public string ErrorMessage { get; set; } = string.Empty;
+
+            /// <summary>
+            /// Результаты по дочерним сервисам группы (ключ — имя ребёнка).
+            /// Пусто для одиночных сервисов. Используется UI для детального показа.
+            /// </summary>
+            public Dictionary<string, CheckResult> ChildResults { get; set; } = new Dictionary<string, CheckResult>();
         }
 
         public Task<ServiceCheckResult> CheckServiceAsync(Service service)
@@ -43,9 +49,59 @@ namespace BackupMonitor.Core.Services
             {
                 if (service.Type == ServiceType.Group)
                 {
-                    var groupResult = CheckGroupAsync(service, targetDate).GetAwaiter().GetResult();
-                    result.IsValid = groupResult.Status == ServiceCheckStatus.OK;
-                    result.ErrorMessage = groupResult.Status == ServiceCheckStatus.OK ? string.Empty : groupResult.Message;
+                    // Синхронный fan-out по детям (без GetAwaiter().GetResult(),
+                    // который может вызвать дедлок на UI-потоке).
+                    var children = ResolveChildren(service);
+                    if (children.Count == 0)
+                    {
+                        result.ErrorMessage = "Группа не содержит дочерних сервисов";
+                        return result;
+                    }
+
+                    var requiredCount = 0;
+                    var requiredOk = 0;
+                    var optionalFail = false;
+                    var hasError = false;
+                    var childMessages = new List<string>();
+
+                    foreach (var child in children)
+                    {
+                        var childResult = CheckServiceForExpectedDate(child, targetDate.Date);
+                        if (childResult.Status == ServiceCheckStatus.ERROR)
+                            hasError = true;
+                        if (child.Required)
+                        {
+                            requiredCount++;
+                            if (childResult.Status == ServiceCheckStatus.OK)
+                                requiredOk++;
+                            else if (!string.IsNullOrEmpty(childResult.Message))
+                                childMessages.Add($"  • {child.Name}: {childResult.Message}");
+                        }
+                        else if (childResult.Status == ServiceCheckStatus.FAIL)
+                        {
+                            optionalFail = true;
+                        }
+                    }
+
+                    if (hasError)
+                    {
+                        result.ErrorMessage = "Ошибка доступа к дочерним сервисам";
+                        return result;
+                    }
+
+                    if (requiredOk < requiredCount)
+                    {
+                        result.IsValid = false;
+                        result.ErrorMessage = $"Не все Required-сервисы OK ({requiredOk}/{requiredCount})";
+                        if (childMessages.Count > 0)
+                            result.ErrorMessage += "\n" + string.Join("\n", childMessages);
+                    }
+                    else
+                    {
+                        result.IsValid = !optionalFail;
+                        if (optionalFail)
+                            result.ErrorMessage = "Есть упавшие Optional-сервисы (WARNING)";
+                    }
                     return result;
                 }
 
@@ -68,7 +124,41 @@ namespace BackupMonitor.Core.Services
 
             if (service.Type == ServiceType.Group)
             {
-                result.ErrorMessage = "Групповая проверка периода не поддерживается";
+                // Группа: проверяем каждого ребёнка за период и агрегируем.
+                // Логика зеркалирует ежедневную CheckGroupAsync — fan-out по детям.
+                var children = ResolveChildren(service);
+                if (children.Count == 0)
+                {
+                    result.ErrorMessage = "Группа не содержит дочерних сервисов";
+                    return result;
+                }
+
+                var allValid = true;
+                var aggregatedMissing = new List<DateTime>();
+
+                foreach (var child in children)
+                {
+                    var childResult = CheckBackupForPeriod(child, startDate, endDate);
+                    result.ChildResults[child.Name] = childResult;
+
+                    // Ошибка доступа у ребёнка → распространяем как общую проблему
+                    if (!string.IsNullOrEmpty(childResult.ErrorMessage))
+                    {
+                        allValid = false;
+                    }
+                    else if (!childResult.IsValid)
+                    {
+                        allValid = false;
+                    }
+
+                    aggregatedMissing.AddRange(childResult.MissingDates);
+                }
+
+                result.IsValid = allValid;
+                result.MissingDates = aggregatedMissing
+                    .Distinct()
+                    .OrderBy(d => d)
+                    .ToList();
                 return result;
             }
 

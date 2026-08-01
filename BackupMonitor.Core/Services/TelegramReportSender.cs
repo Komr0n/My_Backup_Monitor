@@ -48,40 +48,58 @@ namespace BackupMonitor.Core.Services
                 chatId = "-" + chatId;
             }
 
-            var payload = new
+            // Разбиваем длинный отчёт на чанки ≤ 4000 символов (лимит Telegram — 4096).
+            // Раньше отправляли одним запросом — большие отчёты (>4096) отвергались API.
+            var chunks = TelegramMessageFormatter.SplitIntoChunks(message);
+            var anySent = false;
+            var sentChunks = 0;
+
+            foreach (var chunk in chunks)
             {
-                chat_id = chatId,
-                text = message,
-                parse_mode = "HTML"
-            };
+                var payload = new
+                {
+                    chat_id = chatId,
+                    text = chunk,
+                    parse_mode = "HTML"
+                };
 
-            var json = System.Text.Json.JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var json = System.Text.Json.JsonSerializer.Serialize(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(url, content);
-            var responseContent = await response.Content.ReadAsStringAsync();
+                var response = await _httpClient.PostAsync(url, content);
+                var responseContent = await response.Content.ReadAsStringAsync();
 
-            if (response.IsSuccessStatusCode)
-            {
-                return true;
+                if (!response.IsSuccessStatusCode)
+                {
+                    // Десериализуем тело ошибки Telegram; если оно не парсится —
+                    // показываем сырой ответ. try/catch только вокруг десериализации.
+                    string errorMessage;
+                    try
+                    {
+                        var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
+                        errorMessage = !string.IsNullOrWhiteSpace(errorResponse?.description)
+                            ? errorResponse.description!
+                            : responseContent;
+                    }
+                    catch (JsonException)
+                    {
+                        errorMessage = responseContent;
+                    }
+
+                    // Если часть чанков уже доставлена, сообщаем об этом — иначе
+                    // пользователь увидит "ошибку" при фактически частично отправленном отчёте.
+                    var partial = sentChunks > 0
+                        ? $" (уже отправлено чанков: {sentChunks}/{chunks.Count})"
+                        : string.Empty;
+                    throw new Exception(
+                        $"Telegram API (HTTP {(int)response.StatusCode}): {errorMessage}{partial}");
+                }
+
+                anySent = true;
+                sentChunks++;
             }
 
-            // Десериализуем тело ошибки Telegram; если оно не парсится —
-            // показываем сырой ответ. try/catch только вокруг десериализации.
-            string errorMessage;
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<TelegramErrorResponse>(responseContent);
-                errorMessage = !string.IsNullOrWhiteSpace(errorResponse?.description)
-                    ? errorResponse.description!
-                    : responseContent;
-            }
-            catch (JsonException)
-            {
-                errorMessage = responseContent;
-            }
-
-            throw new Exception($"Telegram API (HTTP {(int)response.StatusCode}): {errorMessage}");
+            return anySent;
         }
 
         private string FormatReport(BackupReport report, ReportMode mode)

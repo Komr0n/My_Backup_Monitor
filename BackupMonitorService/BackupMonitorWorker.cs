@@ -15,16 +15,14 @@ namespace BackupMonitorService
 {
     public class BackupMonitorWorker : BackgroundService
     {
-        private const long MaxLogSizeBytes = 5 * 1024 * 1024; // 5 МБ до ротации
-
         private readonly ILogger<BackupMonitorWorker> _logger;
         private readonly BackupConfigManager _configManager;
         private readonly BackupChecker _backupChecker;
         private readonly TelegramReportSender _telegramSender;
         private readonly TelegramCommandBot _commandBot;
+        private readonly FileLogger _fileLogger;
         private readonly HashSet<string> _sentTimesToday = new HashSet<string>();
         private readonly object _lockObject = new object();
-        private readonly string _logFilePath;
         private readonly string _stateFilePath;
         private readonly string _heartbeatFilePath;
 
@@ -33,18 +31,19 @@ namespace BackupMonitorService
             BackupConfigManager configManager,
             BackupChecker backupChecker,
             TelegramReportSender telegramSender,
-            TelegramCommandBot commandBot)
+            TelegramCommandBot commandBot,
+            FileLogger fileLogger)
         {
             _logger = logger;
             _configManager = configManager;
             _backupChecker = backupChecker;
             _telegramSender = telegramSender;
             _commandBot = commandBot;
+            _fileLogger = fileLogger ?? throw new ArgumentNullException(nameof(fileLogger));
 
             var serviceConfigDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "BackupMonitorService");
-            _logFilePath = Path.Combine(serviceConfigDir, "service.log");
             _stateFilePath = Path.Combine(serviceConfigDir, ".sentstate.json");
             _heartbeatFilePath = Path.Combine(serviceConfigDir, ".heartbeat");
 
@@ -358,44 +357,7 @@ namespace BackupMonitorService
 
         private void WriteFileLog(string message)
         {
-            try
-            {
-                var dir = Path.GetDirectoryName(_logFilePath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                // Ротация лога: при превышении лимита переименовываем текущий
-                // лог в .log.1 (предыдущий .1 удаляем) и начинаем новый файл.
-                try
-                {
-                    if (File.Exists(_logFilePath))
-                    {
-                        var fileInfo = new FileInfo(_logFilePath);
-                        if (fileInfo.Length > MaxLogSizeBytes)
-                        {
-                            var backupLog = _logFilePath + ".1";
-                            if (File.Exists(backupLog))
-                            {
-                                File.Delete(backupLog);
-                            }
-                            File.Move(_logFilePath, backupLog);
-                        }
-                    }
-                }
-                catch
-                {
-                    // если ротация не удалась, продолжаем писать в текущий файл
-                }
-
-                var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}";
-                File.AppendAllText(_logFilePath, line);
-            }
-            catch
-            {
-                // ignore file logging errors
-            }
+            _fileLogger.Write(message);
         }
     }
 }

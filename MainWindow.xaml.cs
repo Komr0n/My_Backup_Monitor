@@ -190,8 +190,9 @@ namespace BackupMonitor
                 var startDate = periodWindow.StartDate;
                 var endDate = periodWindow.EndDate;
 
+                // Раньше фильтровали только Single — теперь группы тоже доступны
+                // для периодической проверки (CheckBackupForPeriod умеет их агрегировать).
                 var selectableServices = FlattenServices(_configManager.Services)
-                    .Where(s => s.Type == ServiceTypeModel.Single)
                     .ToList();
 
                 var selectWindow = new ServiceSelectWindow(selectableServices.Select(s => s.Name).ToList());
@@ -244,6 +245,12 @@ namespace BackupMonitor
                     }
 
                     StatusText.Text = "Check completed";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Ошибка при проверке периода: {ex.Message}", "Ошибка",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusText.Text = $"Error: {ex.Message}";
                 }
                 finally
                 {

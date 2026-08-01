@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using BackupMonitor.Core.Models;
 using BackupMonitor.Services;
@@ -18,6 +19,7 @@ namespace BackupMonitor
 
         private TrayIconManager? _trayIcon;
         private MainWindow? _mainWindow;
+        private Mutex? _singleInstanceMutex;
 
         /// <summary>
         /// Текущая тема (Light/Dark). По умолчанию восстанавливается из appconfig.json.
@@ -27,6 +29,19 @@ namespace BackupMonitor
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            // Защита от повторного запуска: только один экземпляр приложения
+            // может владеть мьютексом. Иначе — активируем уже запущенное окно и выходим.
+            // Предотвращает дублирование иконок в трее и двойные Telegram-отчёты.
+            _singleInstanceMutex = new Mutex(initiallyOwned: true, name: @"Local\BackupMonitor",
+                out bool createdNew);
+            if (!createdNew)
+            {
+                // Уже запущен другой экземпляр — активируем его окно и завершаемся
+                ActivateExistingInstance();
+                Shutdown();
+                return;
+            }
 
             // Режим "elevation helper": запущены с --sync-config после UAC-запроса.
             // Копируем конфиг в ProgramData и сразу выходим без UI.
@@ -50,6 +65,31 @@ namespace BackupMonitor
             _trayIcon = new TrayIconManager(
                 showMainWindow: ShowMainWindow,
                 runCheck: () => _mainWindow.Dispatcher.Invoke(_mainWindow.RunCheckTodayFromTray));
+        }
+
+        /// <summary>
+        /// Активирует уже запущенный экземпляр: показывает его окно на переднем плане.
+        /// </summary>
+        private static void ActivateExistingInstance()
+        {
+            try
+            {
+                var current = Application.Current;
+                if (current?.MainWindow != null)
+                {
+                    current.MainWindow.Dispatcher.Invoke(() =>
+                    {
+                        current.MainWindow.Show();
+                        current.MainWindow.WindowState = WindowState.Normal;
+                        current.MainWindow.Activate();
+                    });
+                }
+            }
+            catch
+            {
+                // Второй экземпляр не может достучаться до первого через WPF API —
+                // ничего не делаем, просто завершаемся.
+            }
         }
 
         /// <summary>
@@ -197,6 +237,8 @@ namespace BackupMonitor
             // поэтому освобождаем ресурсы здесь.
             _mainWindow?.CleanupResources();
             _trayIcon?.Dispose();
+            _singleInstanceMutex?.ReleaseMutex();
+            _singleInstanceMutex?.Dispose();
             base.OnExit(e);
         }
     }

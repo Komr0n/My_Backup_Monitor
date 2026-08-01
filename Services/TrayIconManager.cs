@@ -213,7 +213,12 @@ namespace BackupMonitor.Services
             var handle = bmp.GetHicon();
             try
             {
-                return Icon.FromHandle(handle);
+                // ВАЖНО: Icon.FromHandle НЕ забирает владение HICON — это лишь обёртка.
+                // Если сразу вызвать DestroyIcon (как было раньше), иконка-зомби
+                // отображается в трее как пустое место (tooltip при этом работает).
+                // Clone() создаёт независимую иконку, владеющую собственным дескриптором,
+                // после чего оригинальный HICON можно безопасно уничтожить.
+                return (Icon)Icon.FromHandle(handle).Clone();
             }
             finally
             {
@@ -239,6 +244,9 @@ namespace BackupMonitor.Services
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = false;
+                // NotifyIcon.Dispose() НЕ диспозит назначенную Icon —
+                // иначе текущая иконка утекает (один HICON за запуск).
+                _notifyIcon.Icon?.Dispose();
                 _notifyIcon.Dispose();
             }
         }
